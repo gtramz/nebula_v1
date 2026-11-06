@@ -1,0 +1,27 @@
+{
+  "name": "nebula_v1",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "Nebula interface and browser-only interaction shell",
+  "author": "manuellcossio",
+  "license": "MIT",
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @nebula/ui dev",
+    "build": "pnpm run typecheck && pnpm --filter @nebula/ui build",
+    "preview": "pnpm --filter @nebula/ui serve",
+    "typecheck": "tsc --build && pnpm --filter @nebula/ui typecheck",
+    "test": "vitest run",
+    "test:browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "catalog:",
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.11"
+  }
+}

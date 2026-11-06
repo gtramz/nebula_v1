@@ -1,0 +1,17 @@
+{
+  "name": "@nebula/local",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "author": "manuellcossio",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "catalog:"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  }
+}
