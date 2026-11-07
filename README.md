@@ -2,6 +2,10 @@
 
 Nebula's complete interface and browser-only functional shell.
 
+## Private remix workspace
+
+New remixes use `/studio/remix`: private editable drafts, durable tracks and settings, and proposal-only sharing of final mixes. Public release of new remixes is deferred. Existing published remixes are preserved. See [private remix implementation and API contracts](docs/private-remix-handoff.md).
+
 ## Persistent server and publications
 
 `pnpm build && pnpm start` runs the shared local server on

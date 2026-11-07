@@ -1,4 +1,6 @@
-# Persistent local server
+# Persistent local mock server
+
+This is the integrated review environment. Antiq production integration remains owned by Manuel; no production identity or payment service is activated. For the new private draft contracts and legacy remix policy see [private remix handoff](../docs/private-remix-handoff.md).
 
 Run from the repository root using Node 24.17 or newer:
 
@@ -277,73 +279,24 @@ No notification preferences, grouping, real-time transport or retention job yet.
 Tests cover both recipient roles, unread indicators, keyboard entry, direct
 workspace access, read persistence, pagination, new-arrival races and isolation.
 
-## Unified remix studio
+## Private unified remix studio
 
-Discovery's Remix action opens `/remix/:publicationId` directly for signed-in artists
-when the original is published and permits remixing. There is no explanatory panel
-or separate audio/video studio. The same form infers output from the contribution.
-Audio originals accept audio or video; video originals require video. Demo posts
-and remixes of remixes have disabled actions with visible explanations. Visitors
-retain the login prompt; investors cannot remix. Legacy `?mode=video` links open
-the same form and do not force a mode. Back to Discovery returns to the original.
+The authoritative workflow and contracts are documented in
+[Private Remix Workspace](../docs/private-remix-handoff.md).
+Discovery opens `/studio/remix` for an authorized artist. New work is saved in
+`remix_drafts`, with private contribution and render files, rather than as a
+publication. Drafts are editable after reload. Source identity/revision and
+attribution are immutable; clips, gains and contributions are editable with
+optimistic revision checks. GET does not create a draft.
 
-For audio output, the browser lazily decodes the original (up to 25 MB / 10 minutes), selects a fragment
-of 0.1–60 seconds, and adds an uploaded audio track (up to 25 MB / 120 seconds) or
-an explicit microphone recording. Microphone permission is requested only when
-Record is clicked. The base plays during recording; use headphones. Recording
-stops at the fragment end or when stopped manually; tracks and playback are
-released on exit. Recording/device latency is not automatically compensated.
-Uploads can be positioned later in the fragment. Excess audio is trimmed.
+Public release of new remixes is deferred, including through direct publication
+API requests. Existing published remixes remain visible and may be withdrawn;
+legacy flattened drafts are preserved without reconstructing unavailable tracks.
+Only the saved final mix is shared with a project owner when explicitly submitted
+as a proposal. Draft/track access remains owner-only.
 
-Base/added-track volumes are independently adjustable. OfflineAudioContext renders
-the two tracks into stereo 44.1 kHz PCM16 WAV, reducing gain if needed to avoid
-clipping. Changing audio or mix settings invalidates the preview. Playback is
-available before saving. Only the finished WAV is uploaded, using existing media
-quota, ownership and persistence controls. Raw microphone audio and the uploaded
-contribution are not separately sent to the server.
-
-Save remix draft persists the finished mix privately; Publish remix makes it
-public. These are flattened mixes, not editable multitrack sessions. Title,
-description and cover can be edited in Your publications, while source attribution,
-mix settings and rendered media remain fixed. Start a new remix to change them.
-Unsaved changes warn on reload and navigation out of the studio. The studio keeps
-its source revision while editing rather than discarding work on a background
-refresh; save-time validation is authoritative if permission changes meanwhile.
-
-The existing publication POST accepts an optional `remix` object with sourceId,
-sourceRevision, contributionKind, startSeconds, endSeconds, baseGain, voiceGain and voiceOffset.
-Server validation checks role, uploaded-media ownership/type, parameter bounds,
-source visibility, permission and revision. It generates the original title,
-artist ID/name, project reference, grant timestamp and original-media reference;
-client-supplied credits are ignored. The original-media reference is not exposed
-in public DTOs. The server does not acoustically verify that uploaded WAV content
-matches the claimed mix recipe; rights verification/moderation remain future work.
-
-Disabling remix permission blocks new remix saves and first/re-publication of
-saved remixes. Draft publication also requires the original media to be unchanged.
-Existing published remixes remain public with the credit captured at creation;
-metadata edits and withdrawal remain available to their owner. Withdrawing the
-original does not expose its private media/details through attribution: the remix
-shows its saved credit with an unavailable-original label instead of a link.
-Restoring permission does not automatically publish any remix.
-
-For an original linked to a project, Propose to original project opens its current
-offers. Contact/Submit opens the existing private collaboration workspace with a
-Use saved remix option. The applicant still reviews the current offer terms and
-explicitly submits; publishing never creates or accepts a proposal. Submission
-optionally includes publicationId; the server checks that it belongs to the
-applicant, matches the submitted media and originates from the offered project.
-It saves an attribution snapshot with that submission. A submitted private draft's
-media is shared with the counterpart, without exposing the whole draft post.
-Acceptance, revisions, delivery and notifications use the existing workflow.
-
-Storage: remix metadata lives in publication JSON. An additive nullable `remix`
-column on collaboration_submissions preserves the submission credit; previous
-submissions remain unchanged with null credit. No new dependencies or external
-services. Tests: `pnpm test:remix`, `pnpm test:server`, plus collaboration/shared/
-browser regression suites. Microphone tests use Chrome's simulated device; they
-do not validate physical hardware latency or Safari/Firefox behavior.
-
+No Antiq production connection or new dependency is introduced. Accounts,
+projects, USD history and ordinary publications keep their existing contracts.
 
 ## Multi-file collaboration packages
 
@@ -385,7 +338,7 @@ Fragments are 0.1–60 seconds. Camera recording plays the base for headphone mo
 automatically stops at the fragment end, and releases the devices on stop or exit.
 
 Two videos use a vertical top/bottom composition. For audio originals with a video contribution, the new video occupies the
-portrait canvas while the audio is mixed. Contributions may be delayed; short video
+portrait canvas while the audio is mixed. Contributions begin with the selected fragment; short video
 holds its last frame and longer audio/video is trimmed. Independent volume controls
 feed a Web Audio compressor. A 720×1280 canvas is captured at 30 fps into MediaRecorder
 with a supported WebM (preferred) or MP4 encoder. Rendering takes real time; the tab
@@ -394,54 +347,23 @@ incomplete exports. Format/codec support depends on the browser; no server encod
 or dependency was added. Finished videos may have no initial duration metadata,
 which native playback and the studio's probing support.
 
-Only the final combined file is uploaded. Both studios share attribution, permission,
-revision, ownership and draft/publish policies. Publishing does not create a proposal
-or transfer royalties. Drafts remain flattened files, not editable multitrack sessions.
-The server verifies metadata/ownership, not whether decoded frames/sound match a claimed
-recipe or whether participants hold rights. Physical camera/microphone latency and
-Safari/Firefox export compatibility need separate device validation before launch.
+The contribution and final output are saved privately and separately. Audio
+contributions are persisted as stereo 44.1 kHz PCM WAV; video retains its container.
+The same studio handles both output formats and restores edits on reload. The
+server validates ownership, source permission/revision, parameter bounds and
+container kind, not the audiovisual provenance of the rendered content.
 
-Verification: server tests cover attachment access, ownership, limits, immutable
-history, restart persistence, download disposition and video remix permission.
-Chrome desktop/mobile tests inspect exported video pixels and frequencies from both
-soundtracks, draft/publish/credit/proposal flows, extra attachments, camera permission
-retry/device release, cancellation and preview invalidation. Test data are isolated.
-To test a staged build without changing the live UI, set `NEBULA_TEST_PUBLIC_DIR`
-when running `test:shared`, `test:collaborations` or `test:remix`.
+Video originals reject audio-only contributions. Audio originals above 25 MB
+keep compatible video contributions available, while audio mixing explains its
+size limit. The contribution starts at the chosen base fragment; no separate
+contribution-delay control is shown. Short video holds its last frame, long work
+is trimmed. Preview changes require rebuilding before saving a current output.
 
-Browser API references: [MediaStream Recording](https://www.w3.org/TR/mediastream-recording/)
-and [Media Capture from DOM Elements](https://www.w3.org/TR/mediacapture-fromelement/).
-
-
-### Unified format rules and compatibility
-
-For new remixes the publication API requires `remix.contributionKind` (`audio` or
-`video`). Video originals reject audio contributions. The uploaded result must be
-audio for audio contributions and video for video contributions. This validates
-the declared recipe and result container; it does not prove audiovisual provenance.
-The metadata stays immutable with the saved remix. Existing remix records without
-the field remain unchanged and may still be edited/published under the existing
-permission rules, including historical audio-over-video drafts. No DB migration,
-new endpoint or dependency is needed; types allow missing metadata for legacy reads.
-
-One form owns the source fragment, contribution, fields, preview and recording
-lifecycle. Audio originals show Record audio, Record video and Upload file; video
-originals show Record video and Upload video. Replacing a contribution preserves
-all fields/offsets/volumes, invalidates the rendered preview and releases old media.
-Audio uses the existing OfflineAudioContext/WAV mixer; video uses the existing
-canvas/MediaRecorder engine. The final format and result explanation follow the
-contribution, not a separate studio mode. Drafts still store flattened media.
-
-Audio originals above 25 MB disable microphone/audio contributions with an inline
-reason but keep video contributions enabled up to the existing video limits.
-Only audio builds decode the original to PCM. Recording starts the original at
-the selected fragment plus the contribution delay, preserving that delay, and
-stops at the fragment end. Device access is requested only on explicit recording.
-
-Tests also exercise all source/contribution/result format combinations, missing
-metadata, legacy draft preservation after restart, direct entry and role gates,
-replacement in both directions without losing fields, old links, return to the
-original, and a real 27 MB audio original successfully used in a video remix.
+Chrome tests inspect exported pixels, soundtrack frequencies, editable draft
+recovery, proposal attachments, permission retry, device release and cancellation.
+Physical camera/microphone latency and Safari/Firefox export compatibility still
+need device validation. For isolated staged-build tests, set
+`NEBULA_TEST_PUBLIC_DIR` for `test:shared`, `test:collaborations` or `test:remix`.
 
 ## Waveform fragment selector
 

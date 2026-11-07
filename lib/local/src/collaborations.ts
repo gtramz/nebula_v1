@@ -6,7 +6,7 @@ export type CollaborationStatus = 'discussion' | 'submitted' | 'changes_requeste
 export type Collaboration = { id: number; offerId: number; ownerId: number; applicantId: number; ownerName: string; applicantName: string; projectTitle: string; terms: CollaborationOffer; status: CollaborationStatus; revision: number; updatedAt: string };
 export type CollaborationDetail = Collaboration & {
   currentOffer: CollaborationOffer;
-  submissions: { id: number; kind: 'proposal' | 'delivery'; text: string; media: UploadedMedia; files: UploadedMedia[]; createdAt: string; terms: CollaborationOffer | null; remix?: { publicationId: number; title: string; originalTitle: string; originalArtist: string } | null }[];
+  submissions: { id: number; kind: 'proposal' | 'delivery'; text: string; media: UploadedMedia; files: UploadedMedia[]; createdAt: string; terms: CollaborationOffer | null; remix?: { publicationId?: number; draftId?: string; draftRevision?: number; title: string; originalTitle: string; originalArtist: string } | null }[];
   messages: { id: number; authorId: number; author: string; text: string; createdAt: string }[];
   nextMessageCursor: number | null;
 };

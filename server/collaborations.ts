@@ -10,6 +10,8 @@ import type { NotificationKind } from '../lib/local/src/notifications.js';
 type OfferRow = { id: number; project: number; owner: number; title: string; data: string; revision: number; created: string };
 type ThreadRow = { id: number; offer: number; owner: number; applicant: number; terms: string; status: CollaborationStatus; revision: number; updated: string };
 type Dependencies = {
+  privateMedia: (id: string) => boolean;
+  remixProposal: (draftId: string, owner: number, mediaId: string, projectId: number) => object;
   db: DatabaseSync; current: (req: IncomingMessage, artistOnly?: boolean) => SessionUser; viewer: (req: IncomingMessage) => number | null;
   project: (id: number, viewer: number | null) => Project | null; name: (id: number) => string;
   body: (req: IncomingMessage) => Promise<Record<string, unknown>>; json: (res: ServerResponse, value: unknown, status?: number) => void;
@@ -173,7 +175,10 @@ export function collaborations(d: Dependencies) {
           const mediaId = data.mediaId == null ? files[0] : text(data.mediaId, 'Media', 36, 36);
           ensure(files.includes(mediaId), 'The main file must be attached.');
           let remix: string | null = null;
+          if (data.remixDraftId != null) remix = JSON.stringify(d.remixProposal(text(data.remixDraftId, 'Draft',36,36), viewer, mediaId, currentOffer.projectId));
+          for (const file of files) ensure(!d.privateMedia(file) || (file === mediaId && remix !== null), 'Only the saved final remix can be shared, through its proposal.');
           if (data.publicationId != null) {
+            ensure(data.remixDraftId == null, 'Choose one remix.');
             const publicationId = id(data.publicationId);
             const post = db.prepare('SELECT data FROM posts WHERE id=? AND owner=?').get(publicationId, viewer) as { data: string } | undefined;
             const value = post ? JSON.parse(post.data) : null;

@@ -72,7 +72,7 @@ test('persistent interactions across accounts, public comments, private collecti
   await active.getByRole('button', { name: 'Comments', exact: true }).click(); await expect(page.getByRole('button', { name: /Delete comment/ })).toHaveCount(0);
   await login(page, artistEmail, 'artist'); await page.goto(link); await active.getByRole('button', { name: 'Comments', exact: true }).click();
   await page.getByRole('button', { name: 'Delete comment by Social Investor' }).click(); await expect(page.getByText('No comments yet. Start the conversation.')).toBeVisible();
-  await page.keyboard.press('Escape'); await active.getByRole('button', { name: 'Remix', exact: true }).click(); await expect(page).toHaveURL(new RegExp(`/remix/${post.id}$`)); await expect(page.getByRole('heading', { name: 'Remix studio', exact: true })).toBeVisible(); await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.keyboard.press('Escape'); await active.getByRole('button', { name: 'Remix', exact: true }).click(); await expect(page).toHaveURL(/\/studio\/remix$/); await expect(page.getByRole('heading', { name: 'Remix studio', exact: true })).toBeVisible(); await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.keyboard.press('Escape'); await page.screenshot({ path: info.outputPath('interactive-feed.png') });
   expect(errors).toEqual([]);
 });

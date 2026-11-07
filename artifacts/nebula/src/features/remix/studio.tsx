@@ -1,36 +1,43 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'wouter';
 import { useQueryClient } from '@tanstack/react-query';
-import type { Publication, RemixInput, UploadedMedia } from '@nebula/local';
-import { savePublication, uploadMedia } from '@/features/discovery/publication-api';
+import type { Publication, RemixInput, UploadedMedia, RemixDraft } from '@nebula/local';
+import { uploadMedia } from '@/features/discovery/publication-api';
+import { saveDraft, prepareRender } from './draft-api';
 import { FragmentSelector } from './fragment-selector';
 import { initialFragment, type Fragment } from './fragment';
-import { decodeAudio, renderMix } from './audio';
+import { decodeAudio, renderMix, editableAudio } from './audio';
 import { inspectMedia, recordingType, renderVideo } from './video';
 
 const button = 'border border-border px-5 py-3 text-sm hover:border-accent disabled:opacity-40';
 const field = 'block w-full min-w-0 border border-border bg-surfaceAlt p-3 text-sm mt-2';
-type Contribution = { url: string; kind: 'audio' | 'video'; duration: number; name: string; audio?: AudioBuffer };
-export function Studio({ original }: { original: Publication }) {
+type Contribution = { url: string; kind: 'audio' | 'video'; duration: number; name: string; audio?: AudioBuffer; blob?: Blob; mediaId?: string };
+export function Studio({ original, draft, onDrafts }: { original: Publication; draft: RemixDraft; onDrafts: () => void }) {
   const client = useQueryClient(), sourceKind = original.media.kind as 'audio' | 'video';
-  const [settings, setSettings] = useState<RemixInput>({ sourceId: original.id, sourceRevision: original.revision, startSeconds: 0, endSeconds: 8, baseGain: .65, voiceGain: .8, voiceOffset: 0 });
-  const [length, setLength] = useState(0), [own, setOwn] = useState<Contribution | null>(null), [title, setTitle] = useState(`${original.title} — remix`.slice(0, 160)), [description, setDescription] = useState('');
+  const [settings, setSettings] = useState<RemixInput>(draft.settings);
+  const [length, setLength] = useState(0), [own, setOwn] = useState<Contribution | null>(draft.contribution ? { url: draft.contribution.url, kind: draft.contribution.kind as 'audio'|'video', duration: draft.contribution.duration, name: draft.contribution.name ?? 'Saved contribution', mediaId: draft.contribution.id } : null), [title, setTitle] = useState(draft.title), [description, setDescription] = useState(draft.description);
   const [busy, setBusy] = useState(false), [recording, setRecording] = useState<'audio' | 'video' | null>(null), [dirty, setDirty] = useState(false), [error, setError] = useState(''), [progress, setProgress] = useState('');
-  const [mix, setMix] = useState<Blob | null>(null), [preview, setPreview] = useState(''), [playable, setPlayable] = useState(false), [saved, setSaved] = useState<Publication | null>(null);
+  const [mix, setMix] = useState<Blob | null>(null), [preview, setPreview] = useState(draft.render?.url ?? ''), [playable, setPlayable] = useState(false), [saved, setSaved] = useState(false);
   const base = useRef<HTMLMediaElement | null>(null), camera = useRef<HTMLVideoElement | null>(null), player = useRef<HTMLMediaElement | null>(null), canvas = useRef<HTMLCanvasElement | null>(null);
-  const alive = useRef(true), controller = useRef<AbortController | null>(null), rec = useRef<MediaRecorder | null>(null), capture = useRef<MediaStream | null>(null), timer = useRef<ReturnType<typeof setTimeout> | null>(null), uploaded = useRef<UploadedMedia | null>(null);
+  const alive = useRef(true), controller = useRef<AbortController | null>(null), rec = useRef<MediaRecorder | null>(null), capture = useRef<MediaStream | null>(null), timer = useRef<ReturnType<typeof setTimeout> | null>(null), uploaded = useRef<UploadedMedia | null>(draft.render), savedDraft = useRef(draft), contributionUpload = useRef<UploadedMedia | null>(draft.contribution);
+  useEffect(() => {
+    if (draft.contribution?.kind !== 'audio') return;
+    const abort = new AbortController(); setBusy(true); setProgress('Restoring your contribution…');
+    void fetch(draft.contribution.url, { signal: abort.signal }).then(response => { if (!response.ok) throw new Error('Saved contribution unavailable. Reopen your draft to retry.'); return response.blob(); }).then(blob => decodeAudio(blob,120,true)).then(audio => { if (!abort.signal.aborted) setOwn(value => value ? { ...value, audio } : value); }).catch(cause => { if (!abort.signal.aborted) setError(cause.message); }).finally(() => { if (!abort.signal.aborted) { setBusy(false); setProgress(''); } });
+    return () => abort.abort();
+  }, [draft.id]);
   function release() { if (timer.current) clearTimeout(timer.current); timer.current = null; capture.current?.getTracks().forEach(track => track.stop()); capture.current = null; base.current?.pause(); if (camera.current) camera.current.srcObject = null; }
   useEffect(() => { alive.current = true; return () => { alive.current = false; controller.current?.abort(); if (rec.current?.state === 'recording') rec.current.stop(); release(); }; }, []);
   useEffect(() => {
     const abort = new AbortController();
-    void inspectMedia(original.media.url, sourceKind, 600, abort.signal).then(duration => { if (!abort.signal.aborted) { setLength(duration); setSettings(value => ({ ...value, endSeconds: initialFragment(Math.floor(duration * 1000) / 1000).end })); } }).catch(cause => { if (!abort.signal.aborted) setError(cause.message); });
+    void inspectMedia(original.media.url, sourceKind, 600, abort.signal).then(duration => { if (!abort.signal.aborted) { setLength(duration); if (draft.revision === 1) setSettings(value => ({ ...value, endSeconds: initialFragment(Math.floor(duration * 1000) / 1000).end })); } }).catch(cause => { if (!abort.signal.aborted) setError(cause.message); });
     return () => abort.abort();
   }, [original.media.url, sourceKind]);
   useEffect(() => () => { if (own) URL.revokeObjectURL(own.url); }, [own]);
-  useEffect(() => { if (!mix) { setPreview(''); return; } const url = URL.createObjectURL(mix); setPreview(url); return () => URL.revokeObjectURL(url); }, [mix]);
+  useEffect(() => { if (!mix) return; const url = URL.createObjectURL(mix); setPreview(url); return () => URL.revokeObjectURL(url); }, [mix]);
   useEffect(() => {
     const unload = (event: BeforeUnloadEvent) => { if (dirty || busy || recording) { event.preventDefault(); event.returnValue = ''; } };
-    const click = (event: MouseEvent) => { if ((dirty || busy || recording) && (event.target as Element).closest?.('a[href]') && !event.metaKey && !event.ctrlKey && !window.confirm('Leave this unsaved remix? Save a draft to keep the finished mix.')) { event.preventDefault(); event.stopPropagation(); } };
+    const click = (event: MouseEvent) => { if ((dirty || busy || recording) && (event.target as Element).closest?.('a[href]') && !event.metaKey && !event.ctrlKey && !window.confirm('Leave this unsaved remix? Save a private draft to keep your tracks and settings.')) { event.preventDefault(); event.stopPropagation(); } };
     window.addEventListener('beforeunload', unload); document.addEventListener('click', click, true);
     return () => { window.removeEventListener('beforeunload', unload); document.removeEventListener('click', click, true); };
   }, [dirty, busy, recording]);
@@ -40,7 +47,7 @@ export function Studio({ original }: { original: Publication }) {
   }, []);
   const duration = settings.endSeconds - settings.startSeconds;
   const valid = length > 0 && duration >= .1 - 1e-9 && duration <= 60 + 1e-9 && settings.startSeconds >= 0 && settings.endSeconds <= length + .001 && settings.voiceOffset >= 0 && settings.voiceOffset < duration;
-  function invalidate() { player.current?.pause(); base.current?.pause(); setMix(null); setPlayable(false); uploaded.current = null; setDirty(true); setError(''); }
+  function invalidate() { player.current?.pause(); base.current?.pause(); setMix(null); setPreview(''); setPlayable(false); setSaved(false); uploaded.current = null; setDirty(true); setError(''); }
   function change(key: keyof RemixInput, value: number) { invalidate(); setSettings(current => ({ ...current, [key]: value })); }
   function changeFragment(range: Fragment) {
     invalidate();
@@ -51,14 +58,15 @@ export function Studio({ original }: { original: Publication }) {
   const outputKind = own?.kind === 'audio' ? 'audio' : 'video';
   const decodedBase = useRef<AudioBuffer | null>(null);
   async function add(blob: Blob, kind: 'audio' | 'video', name: string, knownDuration?: number) {
-    release(); invalidate(); setOwn(null); setBusy(true); setProgress('Reading your contribution…');
+    release(); invalidate(); contributionUpload.current = null; setOwn(null); setBusy(true); setProgress('Reading your contribution…');
     const url = URL.createObjectURL(blob), abort = new AbortController(); controller.current = abort;
     try {
       if (kind === 'audio' && !audioAllowed) throw new Error(sourceKind === 'video' ? 'A video original requires your own video.' : 'This original exceeds the 25 MB audio mixing limit. Add a video instead.');
       if (blob.size > (kind === 'audio' ? 25 : 100) * 1024 * 1024) throw new Error(`Choose ${kind} up to ${kind === 'audio' ? 25 : 100} MB.`);
-      const audio = kind === 'audio' ? await decodeAudio(blob, 120, knownDuration !== undefined) : undefined;
+      const track = kind === 'audio' ? await editableAudio(await decodeAudio(blob, 120, knownDuration !== undefined)) : null;
+      const audio = track?.audio;
       const duration = audio?.duration ?? await inspectMedia(url, kind, 120, abort.signal, knownDuration);
-      if (alive.current && !abort.signal.aborted) setOwn({ url, kind, duration, name, audio }); else URL.revokeObjectURL(url);
+      if (alive.current && !abort.signal.aborted) setOwn({ url, kind, duration, name, audio, blob: track?.blob ?? blob }); else URL.revokeObjectURL(url);
     } catch (cause) { URL.revokeObjectURL(url); if (alive.current) setError((cause as Error).message); }
     finally { if (alive.current) { setBusy(false); setProgress(''); } }
   }
@@ -88,6 +96,8 @@ export function Studio({ original }: { original: Publication }) {
     if (!own || !canvas.current || !valid) return; invalidate(); setBusy(true); setProgress(own.kind === 'audio' ? 'Preparing audio…' : 'Rendering video… 0%');
     const abort = new AbortController(); controller.current = abort;
     try {
+      await prepareRender(draft.id, savedDraft.current.revision, abort.signal);
+      if (abort.signal.aborted) return;
       let result: Blob;
       if (own.kind === 'audio') {
         if (!audioAllowed || !own.audio) throw new Error('Choose an allowed contribution.');
@@ -104,21 +114,27 @@ export function Studio({ original }: { original: Publication }) {
     catch (cause) { if (alive.current) setError((cause as Error).message); }
     finally { if (alive.current) { setBusy(false); setProgress(''); } }
   }
-  async function save(status: 'draft' | 'published') {
-    if (!mix || !own || !playable || busy) return; setBusy(true); setError(''); player.current?.pause(); const abort = new AbortController(); controller.current = abort;
+  async function save() {
+    if (!valid || !title.trim() || busy) return; setBusy(true); setError(''); player.current?.pause(); base.current?.pause(); const abort = new AbortController(); controller.current = abort;
     try {
-      if (!uploaded.current) uploaded.current = await uploadMedia(new File([mix], outputKind === 'audio' ? 'remix.wav' : mix.type.includes('mp4') ? 'remix.mp4' : 'remix.webm', { type: mix.type }), outputKind, value => { if (alive.current) setProgress(`Uploading remix… ${value}%`); }, abort.signal);
-      if (!alive.current) return;
-      const post = await savePublication({ title, description, mediaId: uploaded.current.id, coverId: null, projectId: null, allowRemix: false, status, remix: { ...settings, contributionKind: own.kind } });
-      if (alive.current) { setSaved(post); setDirty(false); }
-      await Promise.all(['publications','publication','discovery-feed','unused-uploads'].map(key => client.invalidateQueries({ queryKey: [key] })));
+      if (own && !contributionUpload.current) {
+        if (!own.blob) throw new Error('Reopen the saved draft to restore your contribution.');
+        contributionUpload.current = await uploadMedia(new File([own.blob], own.kind === 'audio' ? `${own.name.replace(/\.[^.]+$/, '')}.wav` : own.name, { type: own.blob.type }), own.kind, value => { if (alive.current) setProgress(`Saving contribution… ${value}%`); }, abort.signal, draft.id);
+      }
+      if (mix && playable && !uploaded.current) uploaded.current = await uploadMedia(new File([mix], outputKind === 'audio' ? 'remix.wav' : mix.type.includes('mp4') ? 'remix.mp4' : 'remix.webm', { type: mix.type }), outputKind, value => { if (alive.current) setProgress(`Saving preview… ${value}%`); }, abort.signal, draft.id);
+      if (!alive.current || abort.signal.aborted) return;
+      const result = await saveDraft(draft.id, { revision: savedDraft.current.revision, title, description, settings,
+        contributionId: contributionUpload.current?.id ?? null, contributionDuration: own?.duration ?? null,
+        renderId: uploaded.current?.id ?? null }, abort.signal);
+      if (alive.current) { savedDraft.current = result; setSaved(true); setDirty(false); client.setQueryData(['remix-draft', draft.ownerId, draft.id], result); }
+      await client.invalidateQueries({ queryKey: ['remix-drafts'] });
+      // The workspace owns its edit state. Do not refetch/remount it while editing.
     } catch (cause) { if (alive.current) setError((cause as Error).message); }
     finally { if (alive.current) { setBusy(false); setProgress(''); } }
   }
-  if (saved) return <section className="mx-auto w-full max-w-3xl p-6 space-y-6"><p className="text-accent">{saved.status === 'draft' ? 'Remix draft saved' : 'Remix published'}</p><h1 className="text-3xl font-bold">{saved.title}</h1><p>Remix of {saved.remix?.title} · {saved.remix?.artistName}</p>{saved.media.kind === 'video' ? <video src={saved.media.url} controls playsInline className="w-full max-h-96" /> : <audio src={saved.media.url} controls className="w-full" />}<div className="flex flex-wrap gap-3"><Link className={button} href="/studio">Your publications</Link>{saved.status === 'published' && <Link className={button} href={`/discovery?post=post-${saved.id}`}>View in Discovery</Link>}{saved.remix?.projectId && <Link className={button} href={`/remix/${saved.id}/proposal`}>Propose to original project</Link>}</div><p className="text-sm text-muted">Publishing a remix does not approve a collaboration or assign royalties.</p></section>;
-  const baseProps = { controls: false, preload: 'metadata', className: 'w-full max-h-72', src: original.media.url, onPlay: () => { player.current?.pause(); if (base.current && (base.current.currentTime < settings.startSeconds || base.current.currentTime >= settings.endSeconds)) base.current.currentTime = settings.startSeconds; }, onTimeUpdate: () => { if (base.current && base.current.currentTime >= settings.endSeconds) base.current.pause(); } };
+  const baseProps = { onLoadedMetadata: () => { if (base.current) base.current.currentTime = settings.startSeconds; }, controls: false, preload: 'metadata', className: 'w-full max-h-72', src: original.media.url, onPlay: () => { player.current?.pause(); if (base.current && (base.current.currentTime < settings.startSeconds || base.current.currentTime >= settings.endSeconds)) base.current.currentTime = settings.startSeconds; }, onTimeUpdate: () => { if (base.current && base.current.currentTime >= settings.endSeconds) base.current.pause(); } };
   return <section className="mx-auto w-full max-w-3xl p-6 pb-24 space-y-6">
-    <Link className="underline text-sm" href={`/discovery?post=post-${original.id}`}>Back to Discovery</Link>
+    <div className="flex flex-wrap gap-4"><Link className="underline text-sm" href={`/discovery?post=post-${original.id}`}>Back to Discovery</Link><button className="underline text-sm min-h-11" onClick={() => { if (!dirty || window.confirm('Leave your unsaved changes?')) onDrafts(); }}>Your private drafts</button></div>
     <header><p className="voice text-xs text-accent">MAKE IT YOUR OWN</p><h1 className="text-3xl font-bold">Remix studio</h1></header>
     <div className="border border-border p-5 space-y-2"><p>Original: <strong>{original.title}</strong> · {original.artistName}</p></div>
     <fieldset disabled={busy || !!recording} className="space-y-6 disabled:opacity-60">
@@ -140,19 +156,23 @@ export function Studio({ original }: { original: Publication }) {
         <p className="text-xs text-muted">Use headphones while the original plays. Recording requests only the devices needed and stops at the fragment end. Device latency may affect alignment.</p>
         <p className="text-sm text-accent" role="status">{sourceKind === 'video' ? 'A video original requires your own video. Result: both videos with mixed sound.' : own?.kind === 'video' ? 'Result: your video with the original audio and your sound.' : own?.kind === 'audio' ? 'Result: the original audio mixed with your sound.' : 'Add audio for an audio remix, or video for a video remix.'}</p>
         {own && <p role="status" className="text-sm text-accent break-words">Your contribution is ready · {own.name} · {own.duration.toFixed(2)} seconds</p>}
-        <div className="grid grid-cols-2 gap-4"><label>Base volume<input className={field} type="range" min="0.05" max="1" step="0.05" value={settings.baseGain} onChange={e => change('baseGain', Number(e.target.value))} /></label><label>Your contribution volume<input className={field} type="range" min="0.05" max="1" step="0.05" value={settings.voiceGain} onChange={e => change('voiceGain', Number(e.target.value))} /></label></div>
+        <div className="grid grid-cols-2 gap-4"><label>Base volume <span className="text-muted">{Math.round(settings.baseGain * 100)}%</span><input aria-label="Base volume" className={field} type="range" min="0.05" max="1" step="0.05" value={settings.baseGain} onChange={e => change('baseGain', Number(e.target.value))} /></label><label>Your contribution volume <span className="text-muted">{Math.round(settings.voiceGain * 100)}%</span><input aria-label="Your contribution volume" className={field} type="range" min="0.05" max="1" step="0.05" value={settings.voiceGain} onChange={e => change('voiceGain', Number(e.target.value))} /></label></div>
       </section>
+      <p className="text-xs text-muted">Volume: 5–100%, no mute. Changes require a rebuilt preview; preview and saved mix use the same levels.</p><button className={button} onClick={() => { invalidate(); setSettings(current => ({ ...current, baseGain: .65, voiceGain: .8 })); }}>Reset volumes</button>
       <section aria-label="Remix preview" className="space-y-4"><h2 className="text-xl font-bold">3. Preview your mix</h2>{own?.kind === 'video' && <p className="text-sm text-muted">Rendering takes the length of the fragment. Keep this tab visible. You can cancel and try again.</p>}<button className={button} disabled={!valid || !own} onClick={() => void build()}>Build preview</button>
         {preview && (outputKind === 'video' ? <video ref={element => { player.current = element; }} src={preview} controls playsInline preload="auto" className="w-full max-h-96" onPlay={() => base.current?.pause()} onLoadedData={() => setPlayable(true)} onError={() => { setPlayable(false); setError('Preview could not be played. Rebuild your mix.'); }} /> : <audio ref={element => { player.current = element; }} src={preview} controls preload="auto" className="w-full" onPlay={() => base.current?.pause()} onLoadedData={() => setPlayable(true)} onError={() => { setPlayable(false); setError('Preview could not be played. Rebuild your mix.'); }} />)}
       </section>
-      <label className="block">Remix title<input className={field} value={title} maxLength={160} onChange={e => { setTitle(e.target.value); setDirty(true); }} /></label><label className="block">Description<textarea className={field} rows={3} maxLength={2000} value={description} onChange={e => { setDescription(e.target.value); setDirty(true); }} /></label>
-      <div className="flex flex-wrap gap-3"><button className={button} disabled={!mix || !playable || !title.trim()} onClick={() => void save('draft')}>Save remix draft</button><button className={`${button} bg-cream text-bg`} disabled={!mix || !playable || !title.trim()} onClick={() => void save('published')}>Publish remix</button></div>
+      <label className="block">Remix title<input className={field} value={title} maxLength={160} onChange={e => { setTitle(e.target.value); setDirty(true); setSaved(false); }} /></label><label className="block">Description<textarea aria-label="Description" className={field} rows={3} maxLength={2000} value={description} onChange={e => { setDescription(e.target.value); setDirty(true); setSaved(false); }} /></label>
+      <div className="flex flex-wrap gap-3"><button className={button} disabled={!valid || !title.trim() || (!!mix && !playable)} onClick={() => void save()}>Save remix draft</button></div>
     </fieldset>
     <video ref={camera} muted playsInline className={recording === 'video' ? 'w-full max-h-72' : 'hidden'} aria-label="Camera preview" />
     <canvas ref={canvas} className={progress.startsWith('Rendering') ? 'w-full max-h-72 object-contain' : 'hidden'} aria-label="Video composition" />
     {recording && <div role="status" className="space-y-3"><p>{recording === 'video' ? 'Recording your camera…' : 'Recording your microphone…'}</p><button className={button} onClick={() => { if (rec.current?.state === 'recording') rec.current.stop(); }}>Stop recording</button></div>}
-    {busy && <div className="space-y-3"><p role="status">{progress || 'Saving remix…'}</p>{progress.startsWith('Rendering') && <button className={button} onClick={() => controller.current?.abort()}>Cancel rendering</button>}</div>}
+    {busy && <div className="space-y-3"><p role="status">{progress || 'Saving remix…'}</p>{!progress.includes('permission') && <button className={button} onClick={() => controller.current?.abort()}>Cancel operation</button>}</div>}
     {error && <p role="alert" className="text-danger">{error}</p>}
-    <p className="text-xs text-muted">Drafts save the finished mix, not separate editable tracks. Remixes of remixes are not supported.</p>
+    {saved && <div role="status" className="space-y-3"><p className="text-accent">Remix draft saved</p><p>Your tracks and settings are private and can be reopened.</p>{savedDraft.current.render && savedDraft.current.attribution.projectId && <Link className={`${button} inline-block`} href="/studio/remix/proposal">Propose to original project</Link>}</div>}
+    {!dirty && !saved && draft.render && draft.attribution.projectId && <Link className={`${button} inline-block`} href="/studio/remix/proposal">Propose to original project</Link>}
+    {error.includes('another tab') && <button className={button} onClick={() => { if (window.confirm('Discard these local edits and reopen the latest saved draft?')) { setDirty(false); setTimeout(() => window.location.reload(), 0); } }}>Reopen saved draft</button>}
+    <p className="text-xs text-muted">Private workspace. Only a submitted final mix is shared with collaboration participants. Public remix release is not available.</p>
   </section>;
 }

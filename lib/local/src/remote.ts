@@ -3,12 +3,14 @@ import type { SessionUser } from './types';
 
 export const isServerMode = () => typeof document !== 'undefined' && document.querySelector('meta[name="nebula-data-mode"]')?.getAttribute('content') === 'server';
 
+export class ApiError extends Error { constructor(message: string, public status: number) { super(message); } }
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   let response: Response;
   try { response = await fetch(path, { ...options, credentials: 'same-origin', headers: { 'X-Nebula-Request': '1', ...options.headers } }); }
-  catch { throw new Error('Cannot reach the server. Your saved data is safe; reconnect and try again.'); }
+  catch (error) { if (options.signal?.aborted) throw new Error('Request cancelled.'); throw new Error('Cannot reach the server. Your saved data is safe; reconnect and try again.'); }
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error ?? 'The request could not be completed.');
+  if (!response.ok) { if (response.status === 401) window.dispatchEvent(new Event('nebula-session-expired')); throw new ApiError(data.error ?? 'The request could not be completed.', response.status); }
   return data as T;
 }
 
@@ -22,7 +24,12 @@ export function createRemoteStore() {
   let revision = 0;
   const listeners = new Set<() => void>();
   const notify = () => { revision++; listeners.forEach(listener => listener()); };
-  function setUser(next: SessionUser | null) { if (JSON.stringify(user) !== JSON.stringify(next)) { user = next; notify(); } }
+  function setUser(next: SessionUser | null) {
+    try { const pointer = JSON.parse(sessionStorage.getItem('nebula-active-remix') ?? 'null'); if (pointer && pointer.owner !== next?.artistId) sessionStorage.removeItem('nebula-active-remix'); } catch { /* Storage may be unavailable. */ }
+    window.dispatchEvent(new CustomEvent('nebula-session-identity', { detail: next?.artistId ?? null }));
+    if (JSON.stringify(user) !== JSON.stringify(next)) { user = next; notify(); }
+  }
+  window.addEventListener('nebula-session-expired', () => setUser(null));
   const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('nebula-server-session') : null;
   async function refresh() {
     const data = await apiRequest<{ user: SessionUser | null }>('/api/session');

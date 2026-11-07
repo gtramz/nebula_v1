@@ -52,3 +52,13 @@ export async function renderMix(base: AudioBuffer, voice: AudioBuffer, settings:
   track(voice, settings.voiceGain, settings.voiceOffset, 0, Math.min(voice.duration, duration - settings.voiceOffset));
   return wav(await context.startRendering());
 }
+
+/** Canonical editable audio track: bounded stereo PCM, independent of recorder container. */
+export async function editableAudio(buffer: AudioBuffer): Promise<{ audio: AudioBuffer; blob: Blob }> {
+  const context = new OfflineAudioContext(2, Math.ceil(buffer.duration * 44100), 44100);
+  const source = context.createBufferSource(); source.buffer = buffer; source.connect(context.destination); source.start();
+  const audio = await context.startRendering();
+  const blob = wav(audio);
+  // Preview the same quantized/normalized track that will be restored after reload.
+  return { audio: await decodeAudio(blob, 120, true), blob };
+}

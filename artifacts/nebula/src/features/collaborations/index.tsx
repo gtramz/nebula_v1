@@ -4,6 +4,7 @@ import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-quer
 import { apiRequest, isServerMode, type CollaborationOffer, type OfferInput, type Compensation, type Collaboration, type CollaborationDetail, type UploadedMedia } from '@nebula/local';
 import { useAuth } from '@/context/AuthContext';
 import { uploadMedia } from '@/features/discovery/publication-api';
+import { useRemixDraft } from '@/features/remix/draft-api';
 import { usePublication } from '@/features/discovery/publication-api';
 import { formatMoney } from '@/lib/utils';
 
@@ -20,7 +21,7 @@ function Terms({ offer }: { offer: CollaborationOffer }) {
   return <div className="space-y-3 text-sm"><p className="text-accent"><CompensationText value={offer.compensation} /></p><p className="whitespace-pre-wrap break-words"><strong>Deliverable: </strong>{offer.deliverable}</p>{offer.requirements && <p className="whitespace-pre-wrap break-words"><strong>Requirements & terms: </strong>{offer.requirements}</p>}<p className="text-muted">{offer.deadline ? `Apply by ${offer.deadline} (UTC)` : 'No application deadline'}</p></div>;
 }
 
-export function ProjectOffers({ projectId, ownerId, compact = false, proposalPublicationId }: { projectId: number; ownerId?: number; compact?: boolean; proposalPublicationId?: number }) {
+export function ProjectOffers({ projectId, ownerId, compact = false, proposalPublicationId, proposalDraftId }: { projectId: number; ownerId?: number; compact?: boolean; proposalPublicationId?: number; proposalDraftId?: string }) {
   const { user } = useAuth(), client = useQueryClient(), [, navigate] = useLocation();
   const [editing, setEditing] = useState<CollaborationOffer | 'new' | null>(null), [error, setError] = useState(''), [pending, setPending] = useState(false);
   const query = useQuery({ queryKey: ['offers', projectId, identity(user)], queryFn: () => apiRequest<CollaborationOffer[]>(`/api/projects/${projectId}/offers`), enabled: isServerMode(), refetchInterval: 15_000, refetchOnWindowFocus: true });
@@ -28,7 +29,7 @@ export function ProjectOffers({ projectId, ownerId, compact = false, proposalPub
   const mine = user?.artistId === ownerId;
   async function openConversation(offer: CollaborationOffer) {
     if (pending) return; setPending(true); setError('');
-    try { const result = await write<Collaboration>(`/api/offers/${offer.id}/conversations`, 'POST', {}); navigate(`/collaborations/${result.id}${proposalPublicationId ? `?publication=${proposalPublicationId}` : ''}`); }
+    try { const result = await write<Collaboration>(`/api/offers/${offer.id}/conversations`, 'POST', {}); navigate(`/collaborations/${result.id}${proposalDraftId ? `?draft=${encodeURIComponent(proposalDraftId)}` : proposalPublicationId ? `?publication=${proposalPublicationId}` : ''}`); }
     catch (error) { setError((error as Error).message); } finally { setPending(false); }
   }
   return <section aria-label="Collaboration offers" className="space-y-5 border-t border-border pt-6">
@@ -137,19 +138,21 @@ function SubmissionForm({ item, onDone }: { item: CollaborationDetail; onDone: (
   const search = useSearch();
   const selectedId = Number(new URLSearchParams(search).get('publication'));
   const savedRemix = usePublication(Number.isSafeInteger(selectedId) && selectedId > 0 ? selectedId : undefined);
-  const usableRemix = savedRemix.data?.artistId === user?.artistId && savedRemix.data?.remix?.projectId === item.currentOffer.projectId ? savedRemix.data : null;
-  const [publicationId, setPublicationId] = useState<number | null>(null);
+  const privateRemix = useRemixDraft(new URLSearchParams(search).get('draft'));
+  const privateValue = privateRemix.data && privateRemix.data.ownerId === user?.artistId && privateRemix.data.attribution.projectId === item.currentOffer.projectId && privateRemix.data.render ? { id: privateRemix.data.id, title: privateRemix.data.title, remix: privateRemix.data.attribution, media: privateRemix.data.render } : null;
+  const usableRemix = privateValue ?? (savedRemix.data?.artistId === user?.artistId && savedRemix.data?.remix?.projectId === item.currentOffer.projectId ? savedRemix.data : null);
+  const [publicationId, setPublicationId] = useState<number | null>(null), [remixDraftId, setRemixDraftId] = useState<string | null>(null);
   const delivery = item.status === 'accepted', [files, setFiles] = useState<UploadedMedia[]>([]), [description, setDescription] = useState(''), [ack, setAck] = useState(false);
   const [error, setError] = useState(''), [pending, setPending] = useState(false), [uploading, setUploading] = useState(false), [progress, setProgress] = useState(0), [ready, setReady] = useState<Record<string, boolean>>({});
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
   useEffect(() => { setAck(false); }, [item.currentOffer.revision]);
-  return <form aria-label={delivery ? 'Delivery form' : 'Proposal form'} className="border border-accent p-5 space-y-4" onSubmit={async e => { e.preventDefault(); if (!files.length || pending || uploading) return; setPending(true); setError(''); try { await write(`/api/collaborations/${item.id}`, 'PATCH', { action: delivery ? 'deliver' : 'submit', revision: item.revision, offerRevision: item.currentOffer.revision, acceptTerms: ack, text: description, mediaId: files[0].id, mediaIds: files.map(file => file.id), publicationId }); await onDone(); } catch (error) { setError((error as Error).message); } finally { setPending(false); } }}>
+  return <form aria-label={delivery ? 'Delivery form' : 'Proposal form'} className="border border-accent p-5 space-y-4" onSubmit={async e => { e.preventDefault(); if (!files.length || pending || uploading) return; setPending(true); setError(''); try { await write(`/api/collaborations/${item.id}`, 'PATCH', { action: delivery ? 'deliver' : 'submit', revision: item.revision, offerRevision: item.currentOffer.revision, acceptTerms: ack, text: description, mediaId: files[0].id, mediaIds: files.map(file => file.id), publicationId, remixDraftId }); await onDone(); } catch (error) { setError((error as Error).message); } finally { setPending(false); } }}>
     <h2 className="text-xl font-bold">{delivery ? 'Deliver your work' : 'Submit your proposal'}</h2>
     {!delivery && <><Terms offer={item.currentOffer} />{!item.currentOffer.available && <p role="status">This offer is no longer accepting proposals.</p>}</>}
     <label className="block space-y-2">{delivery ? 'Delivery notes' : 'Your proposal'}<textarea className={field} rows={4} required maxLength={4000} value={description} onChange={e => setDescription(e.target.value)} /></label>
-    {usableRemix && <div className="border border-border p-4 space-y-3"><p>Saved remix: {usableRemix.title}</p><p className="text-sm text-muted">Remix of {usableRemix.remix!.title} · {usableRemix.remix!.artistName}</p><button type="button" className={button} disabled={pending || uploading || publicationId === usableRemix.id} onClick={() => { const attached = [usableRemix.media, ...files.filter(file => file.id !== usableRemix.media.id)]; if (attached.length > 10 || attached.reduce((sum, file) => sum + file.size, 0) > 250 * 1024 * 1024) { setError('Remove a file before adding the remix: up to 10 files / 250 MB.'); return; } setFiles(attached); setPublicationId(usableRemix.id); setError(''); }}>Use saved remix</button>{publicationId && <p className="text-sm text-accent">Remix selected. Review the terms and send your proposal.</p>}</div>}
-    {savedRemix.error && <ErrorMessage error={savedRemix.error} />}
+    {usableRemix && <div className="border border-border p-4 space-y-3"><p>Saved remix: {usableRemix.title}</p><p className="text-sm text-muted">Remix of {usableRemix.remix!.title} · {usableRemix.remix!.artistName}</p><button type="button" className={button} disabled={pending || uploading || (publicationId ?? remixDraftId) === usableRemix.id} onClick={() => { const attached = [usableRemix.media, ...files.filter(file => file.id !== usableRemix.media.id)]; if (attached.length > 10 || attached.reduce((sum, file) => sum + file.size, 0) > 250 * 1024 * 1024) { setError('Remove a file before adding the remix: up to 10 files / 250 MB.'); return; } setFiles(attached); setPublicationId(typeof usableRemix.id === 'number' ? usableRemix.id : null); setRemixDraftId(typeof usableRemix.id === 'string' ? usableRemix.id : null); setError(''); }}>Use saved remix</button>{(publicationId || remixDraftId) && <p className="text-sm text-accent">Remix selected. Review the terms and send your proposal.</p>}</div>}
+    {(savedRemix.error || privateRemix.error) && <ErrorMessage error={savedRemix.error || privateRemix.error} />}
     <label className="block space-y-2">Work files (audio, video, PDF or ZIP)<input className={`${field} min-w-0`} type="file" multiple accept="audio/*,video/*,.pdf,.zip" disabled={pending || uploading} onChange={async e => {
       const selected = Array.from(e.target.files ?? []); e.target.value = ''; if (!selected.length) return; setError('');
       if (files.length + selected.length > 10) { setError('Attach up to 10 files. Remove a file before adding more.'); return; }
@@ -167,7 +170,7 @@ function SubmissionForm({ item, onDone }: { item: CollaborationDetail; onDone: (
     }} /></label>
     <p className="text-xs text-muted">Up to 10 files / 250 MB per submission. Audio, video and ZIP: 100 MB each. PDF: 20 MB. ZIP archives are downloaded without extraction.</p>
     {uploading && <div><p role="status">Uploading {progress}%</p><button type="button" className={button} onClick={() => controller.current?.abort()}>Cancel upload</button></div>}
-    {files.map((file, index) => <div key={file.id} className="border border-border p-3 space-y-2"><WorkFile file={file} onReady={value => setReady(current => current[file.id] === value ? current : { ...current, [file.id]: value })} /><button type="button" className="text-sm underline" disabled={pending || uploading} aria-label={`Remove ${file.name ?? file.kind}`} onClick={() => { setFiles(current => current.filter(item => item.id !== file.id)); if (index === 0) setPublicationId(null); }}>Remove file</button></div>)}
+    {files.map((file, index) => <div key={file.id} className="border border-border p-3 space-y-2"><WorkFile file={file} onReady={value => setReady(current => current[file.id] === value ? current : { ...current, [file.id]: value })} /><button type="button" className="text-sm underline" disabled={pending || uploading} aria-label={`Remove ${file.name ?? file.kind}`} onClick={() => { setFiles(current => current.filter(item => item.id !== file.id)); if (index === 0) { setPublicationId(null); setRemixDraftId(null); } }}>Remove file</button></div>)}
     {!delivery && <label className="flex gap-3 items-start text-sm"><input type="checkbox" checked={ack} onChange={e => setAck(e.target.checked)} />I reviewed the current deliverable, compensation and terms.</label>}
     <p className="text-xs text-muted">Uploaded work is shared with the project owner when submitted. Unsubmitted uploads can be removed in Your publications. No payment or royalty transfer occurs.</p>
     <ErrorMessage error={error} /><button className={primary} disabled={pending || uploading || !files.length || files.some(file => ['audio','video'].includes(file.kind) && !ready[file.id]) || !description.trim() || (!delivery && (!ack || !item.currentOffer.available))}>{pending ? 'Submitting…' : delivery ? 'Send delivery' : 'Send proposal'}</button>

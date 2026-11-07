@@ -23,10 +23,11 @@ export async function savePublication(data: PublicationInput, existing?: Publica
     body: JSON.stringify({ ...data, ...(existing ? { revision: existing.revision } : {}) }),
   });
 }
-export function uploadMedia(file: File, kind: UploadedMedia['kind'], progress: (value: number) => void, signal: AbortSignal): Promise<UploadedMedia> {
+export function uploadMedia(file: File, kind: UploadedMedia['kind'], progress: (value: number) => void, signal: AbortSignal, remixDraftId?: string): Promise<UploadedMedia> {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open('POST', '/api/uploads');
+    if (remixDraftId) request.setRequestHeader('X-Remix-Draft', remixDraftId);
     request.setRequestHeader('X-File-Name', encodeURIComponent(file.name));
     request.setRequestHeader('X-Nebula-Request', '1'); request.setRequestHeader('X-Media-Kind', kind); request.setRequestHeader('Content-Type', 'application/octet-stream');
     const abort = () => request.abort();

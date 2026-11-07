@@ -1,3 +1,4 @@
+import { openLegacy, previewReady, noPreview } from './helpers';
 import { test, expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 const headers={Origin:'http://127.0.0.1:4175','X-Nebula-Request':'1'};
@@ -10,12 +11,12 @@ async function source(page:Page,tag:string,seconds=70,kind:'audio'|'video'='audi
 async function screenshot(page:Page,name:string,path:string){await page.getByRole('heading',{name,exact:true}).evaluate(e=>e.scrollIntoView({behavior:'instant',block:'start'}));await page.waitForTimeout(300);await page.screenshot({path});}
 
 test('single duration control, fixed handles, zoom and overview stay consistent',async({page},info)=>{
- const post=await source(page,`presets-${info.project.name}-${Date.now()}`);await page.goto(`/remix/${post.id}`);
+ const post=await source(page,`presets-${info.project.name}-${Date.now()}`);await openLegacy(page,`/remix/${post.id}`);
  await expect(page.getByRole('button',{name:/^Clip duration:/})).toContainText('30s');
  await expect(page.getByText('Loading waveform…',{exact:true})).toHaveCount(0);
  await expect(page.getByText('Waveform unavailable.',{exact:false})).toHaveCount(0);
  await expect(page.getByTestId('waveform-track').locator('svg path').first()).toHaveAttribute('d',/^M/);
- const start=page.getByRole('slider',{name:'Trim start',exact:true}),end=page.getByRole('slider',{name:'Trim end',exact:true});
+ const start=page.getByRole('slider',{name:'Move clip start',exact:true}),end=page.getByRole('slider',{name:'Move clip end',exact:true});
  await start.focus();await start.press('Shift+ArrowRight');await expect(start).toHaveAttribute('aria-valuenow','1');await expect(end).toHaveAttribute('aria-valuenow','31');
  await end.press('End');await expect(start).toHaveAttribute('aria-valuenow','40');await expect(end).toHaveAttribute('aria-valuenow','70');
  const duration=page.getByRole('button',{name:/^Clip duration:/});
@@ -33,15 +34,18 @@ test('single duration control, fixed handles, zoom and overview stay consistent'
  await screenshot(page,'1. Choose the base fragment',info.outputPath('waveform-studio.png'));
  await page.getByTestId('waveform-track').evaluate(e=>e.scrollIntoView({behavior:'instant',block:'start'}));await page.waitForTimeout(300);await page.screenshot({path:info.outputPath('waveform-controls.png')});
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+ await end.press('End'); await page.getByRole('button',{name:'Save remix draft',exact:true}).click();await expect(page.getByText('Remix draft saved',{exact:true})).toBeVisible();
+ await page.reload();await expect(start).toHaveAttribute('aria-valuenow','40');await expect(end).toHaveAttribute('aria-valuenow','70');await expect(end).toBeVisible();
+
 });
 
 test('pointer and touch dragging move fixed clips; scrubbing preserves the preview while trimming invalidates it',async({page},info)=>{
- test.setTimeout(60000);const post=await source(page,`gesture-${info.project.name}-${Date.now()}`);await page.goto(`/remix/${post.id}`);await expect(page.getByRole('button',{name:/^Clip duration:/})).toContainText('30s');
+ test.setTimeout(60000);const post=await source(page,`gesture-${info.project.name}-${Date.now()}`);await openLegacy(page,`/remix/${post.id}`);await expect(page.getByRole('button',{name:/^Clip duration:/})).toContainText('30s');
  const selection=page.getByRole('slider',{name:'Move selected fragment',exact:true});await selection.evaluate(e=>e.scrollIntoView({behavior:'instant',block:'center'}));await page.waitForTimeout(300);
  const box=(await selection.boundingBox())!;const x=box.x+box.width/2,y=box.y+50;
  if(info.project.name==='mobile') { const cdp=await page.context().newCDPSession(page);await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});for(let i=1;i<=5;i++){await cdp.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x+7*i,y}]});await page.waitForTimeout(25);}await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await cdp.detach(); }
  else {await page.mouse.move(x,y);await page.mouse.down();await page.mouse.move(x+35,y,{steps:5});await page.mouse.up();}
- const start=Number(await page.getByRole('slider',{name:'Trim start',exact:true}).getAttribute('aria-valuenow')),end=Number(await page.getByRole('slider',{name:'Trim end',exact:true}).getAttribute('aria-valuenow'));expect(start).toBeGreaterThan(1);expect(end-start).toBeCloseTo(30,2);
+ const start=Number(await page.getByRole('slider',{name:'Move clip start',exact:true}).getAttribute('aria-valuenow')),end=Number(await page.getByRole('slider',{name:'Move clip end',exact:true}).getAttribute('aria-valuenow'));expect(start).toBeGreaterThan(1);expect(end-start).toBeCloseTo(30,2);
  await page.getByRole('button',{name:/^Clip duration:/}).click();await page.getByRole('button',{name:/^Clip duration:/}).click();
  await selection.press('Home');await selection.press('Shift+ArrowRight');
  await page.getByLabel('Remix title',{exact:true}).fill('Keep this title');await page.getByLabel('Upload file',{exact:true}).setInputFiles({name:'own.wav',mimeType:'audio/wav',buffer:wav(2)});
@@ -50,19 +54,19 @@ test('pointer and touch dragging move fixed clips; scrubbing preserves the previ
  await scrub.press('End');await scrub.press('Shift+ArrowLeft');
  await page.getByRole('button',{name:'Play selection',exact:true}).click();await expect(page.getByRole('button',{name:'Pause',exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Play selection',exact:true})).toBeVisible({timeout:5000});
  expect(await page.locator('audio[aria-label="Original fragment"]').evaluate((e:HTMLAudioElement)=>e.currentTime)).toBeCloseTo(16,1);
- await page.getByRole('slider',{name:'Trim end',exact:true}).press('Shift+ArrowLeft');
+ await page.getByRole('slider',{name:'Move clip end',exact:true}).press('Shift+ArrowLeft');
  await expect(page.getByLabel('Remix title',{exact:true})).toHaveValue('Keep this title');await expect(page.getByRole('region',{name:'Remix preview',exact:true}).locator('audio,video')).toHaveCount(0);
  await page.getByRole('button',{name:'Build preview',exact:true}).click();await expect(page.getByRole('button',{name:'Save remix draft',exact:true})).toBeEnabled();
- const saved=page.waitForResponse(response=>response.url().endsWith('/api/publications')&&response.request().method()==='POST');
+ const saved=page.waitForResponse(response=>response.url().includes('/api/remix-drafts/')&&response.request().method()==='PATCH');
  await page.getByRole('button',{name:'Save remix draft',exact:true}).click();await expect(page.getByText('Remix draft saved',{exact:true})).toBeVisible();
- expect((await(await saved).json()).remix).toMatchObject({startSeconds:0,endSeconds:15,voiceOffset:0});
+ expect((await(await saved).json()).settings).toMatchObject({startSeconds:0,endSeconds:15,voiceOffset:0});
 
 });
 
 test('short originals, processor fallback and video playback use the same selector',async({page},info)=>{
- const post=await source(page,`short-${info.project.name}-${Date.now()}`,8);await page.route(`**/api/publications/${post.id}/waveform`,route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Processor unavailable'})}));await page.goto(`/remix/${post.id}`);
+ const post=await source(page,`short-${info.project.name}-${Date.now()}`,8);await page.route(`**/api/publications/${post.id}/waveform`,route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Processor unavailable'})}));await openLegacy(page,`/remix/${post.id}`);
  await expect(page.getByRole('button',{name:/^Clip duration:/})).toContainText('8s');await expect(page.getByRole('button',{name:/^Clip duration:/})).toBeDisabled();
  await expect(page.getByText(/Waveform unavailable/)).toBeVisible();await expect(page.getByRole('button',{name:'Play selection',exact:true})).toBeEnabled();await page.unroute(`**/api/publications/${post.id}/waveform`);await page.getByRole('button',{name:'Retry waveform',exact:true}).click();await expect(page.getByText(/Waveform unavailable/)).toHaveCount(0);await expect(page.getByTestId('waveform-track').locator('svg path').first()).toHaveAttribute('d',/^M/);
- const video=await source(page,`video-${info.project.name}-${Date.now()}`,8,'video');await page.goto(`/remix/${video.id}`);await expect(page.locator('video[aria-label="Original fragment"]')).toBeVisible();expect(await page.locator('video[aria-label="Original fragment"]').evaluate((e:HTMLVideoElement)=>e.controls)).toBe(false);
+ const video=await source(page,`video-${info.project.name}-${Date.now()}`,8,'video');await openLegacy(page,`/remix/${video.id}`);await expect(page.locator('video[aria-label="Original fragment"]')).toBeVisible();expect(await page.locator('video[aria-label="Original fragment"]').evaluate((e:HTMLVideoElement)=>e.controls)).toBe(false);
  await expect(page.getByTestId('waveform-track').locator('svg path').first()).toHaveAttribute('d',/^M/);await page.getByRole('slider',{name:'Playback position',exact:true}).press('Shift+ArrowRight');expect(await page.locator('video[aria-label="Original fragment"]').evaluate((e:HTMLVideoElement)=>e.currentTime)).toBeCloseTo(1,1);
 });

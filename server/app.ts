@@ -9,6 +9,7 @@ import { parseState } from '../lib/local/src/state.js';
 import type { ProjectInput, SessionUser } from '../lib/local/src/types.js';
 import type { Publication, PublicationInput, UploadedMedia } from '../lib/local/src/publications.js';
 import { waveforms } from './waveforms.js';
+import { remixDrafts } from './remix-drafts.js';
 import { remixes, type StoredPublication } from './remixes.js';
 import { collaborations } from './collaborations.js';
 import { rankPosts, type RankCandidate } from './ranking.js';
@@ -97,9 +98,9 @@ export async function createNebulaServer(options: { dataDir: string; publicDir: 
   function publicationInput(value: unknown, owner: number): PublicationInput {
     const data = object(value);
     const mediaId = text(data.mediaId, 'Media', 36, 36), media = mediaRow(mediaId);
-    ensure(media && media.owner === owner && ['audio','video'].includes(media.kind), 'Choose your own uploaded audio or video.');
+    ensure(media && media.owner === owner && !drafts.isPrivate(mediaId) && ['audio','video'].includes(media.kind), 'Choose your own uploaded audio or video.');
     const coverId = data.coverId == null ? null : text(data.coverId, 'Cover', 36, 36);
-    if (coverId) { const cover = mediaRow(coverId); ensure(cover && cover.owner === owner && cover.kind === 'image', 'Choose your own cover image.'); }
+    if (coverId) { const cover = mediaRow(coverId); ensure(cover && cover.owner === owner && !drafts.isPrivate(coverId) && cover.kind === 'image', 'Choose your own cover image.'); }
     const projectId = data.projectId == null ? null : id(data.projectId);
     ensure(['draft', 'published', 'withdrawn'].includes(String(data.status)), 'Choose a publication status.');
     if (projectId) {
@@ -203,13 +204,16 @@ export async function createNebulaServer(options: { dataDir: string; publicDir: 
       throw error;
     });
   }
-  const collaboration = collaborations({ db, current, viewer: accountId, body, json, rate: rateLimit,
+  const drafts = remixDrafts({ db, current, body, json, media: key => { const row = mediaRow(key); return row ? { ...mediaDto(row), owner: row.owner } : undefined; }, name: owner => domain(null).getArtist(owner)?.artist.name ?? 'Artist' });
+  const collaboration = collaborations({ db, current, viewer: accountId, body, json, rate: rateLimit, privateMedia: drafts.isPrivate, remixProposal: drafts.proposal,
     project: (id, viewer) => domain(viewer).getProject(id)?.project ?? null,
     name: id => domain(id).getCurrentUser()?.name ?? 'Artist', media: mediaRow });
   const waveformStore = waveforms(directory, mediaDirectory);
   const uploads = new Set<number>();
   async function upload(req: IncomingMessage, res: ServerResponse) {
     const owner = current(req, true).artistId!;
+    const draftId = req.headers['x-remix-draft'];
+    if (draftId !== undefined) { ensure(typeof draftId === 'string', 'Invalid draft.'); drafts.authorizeUpload(draftId, owner); }
     ensure(!uploads.has(owner), 'Another upload is in progress.', 409);
     rateLimit(req, 'uploads', 60, 3600, String(owner));
     const requested = req.headers['x-media-kind'];
@@ -245,7 +249,13 @@ export async function createNebulaServer(options: { dataDir: string; publicDir: 
       // Recheck total after asynchronous file writes to enforce the global limit.
       const latestTotal = (db.prepare('SELECT COALESCE(SUM(size),0) AS bytes FROM media').get() as { bytes: number }).bytes;
       ensure(latestTotal + size <= (options.maxStorageBytes ?? 5 * 1024 ** 3), 'Server storage is full.', 413);
-      db.prepare('INSERT INTO media(id,owner,kind,mime,size,created,name) VALUES(?,?,?,?,?,?,?)').run(row.id, owner, row.kind, row.mime, size, row.created, row.name);
+      if (draftId) { ensure(current(req, true).artistId === owner, 'Session expired.', 401); drafts.authorizeUpload(draftId as string, owner); }
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare('INSERT INTO media(id,owner,kind,mime,size,created,name) VALUES(?,?,?,?,?,?,?)').run(row.id, owner, row.kind, row.mime, size, row.created, row.name);
+        if (draftId) drafts.bind(row.id, draftId as string, owner);
+        db.exec('COMMIT');
+      } catch (error) { db.exec('ROLLBACK'); throw error; }
       committed = true; json(res, mediaDto(row), 201);
     } finally {
       uploads.delete(owner);
@@ -284,6 +294,7 @@ export async function createNebulaServer(options: { dataDir: string; publicDir: 
       if (url.pathname === '/api/session' && req.method === 'GET') { json(res, { user: domain(accountId(req)).getCurrentUser() }); return; }
       if (url.pathname === '/api/rpc' && req.method === 'POST') { await rpc(req, res); return; }
       if (url.pathname === '/api/uploads' && req.method === 'POST') { await upload(req, res); return; }
+      if (await drafts.handle(req, res, url)) return;
       if (await collaboration.handle(req, res, url)) return;
       const waveformMatch = /^\/api\/publications\/(\d+)\/waveform$/.exec(url.pathname);
       if (waveformMatch && req.method === 'GET') {
@@ -313,13 +324,13 @@ export async function createNebulaServer(options: { dataDir: string; publicDir: 
       if (uploadMatch && req.method === 'DELETE') {
         const owner = current(req, true).artistId!, row = mediaRow(uploadMatch[1]);
         ensure(row && row.owner === owner, 'Not found.', 404);
-        ensure(!collaboration.mediaUsed(row.id) && !db.prepare("SELECT id FROM posts WHERE json_extract(data,'$.mediaId')=? OR json_extract(data,'$.coverId')=?").get(row.id, row.id), 'This file is used by a publication or collaboration.', 409);
-        db.prepare('DELETE FROM media WHERE id=?').run(row.id); await unlink(join(mediaDirectory, row.id)).catch(() => {}); await waveformStore.remove(row.id); json(res, { ok: true }); return;
+        ensure(!drafts.used(row.id) && !collaboration.mediaUsed(row.id) && !db.prepare("SELECT id FROM posts WHERE json_extract(data,'$.mediaId')=? OR json_extract(data,'$.coverId')=?").get(row.id, row.id), 'This file is used by a publication or collaboration.', 409);
+        db.prepare('DELETE FROM remix_private_media WHERE media=?').run(row.id); db.prepare('DELETE FROM media WHERE id=?').run(row.id); await unlink(join(mediaDirectory, row.id)).catch(() => {}); await waveformStore.remove(row.id); json(res, { ok: true }); return;
       }
       if (url.pathname === '/api/uploads' && req.method === 'GET') {
         const owner = current(req, true).artistId!;
         const rows = db.prepare("SELECT * FROM media WHERE owner=? AND NOT EXISTS (SELECT 1 FROM posts WHERE json_extract(data,'$.mediaId')=media.id OR json_extract(data,'$.coverId')=media.id) ORDER BY created DESC").all(owner) as MediaRow[];
-        json(res, rows.filter(row => !collaboration.mediaUsed(row.id)).map(mediaDto)); return;
+        json(res, rows.filter(row => !drafts.used(row.id) && !collaboration.mediaUsed(row.id)).map(mediaDto)); return;
       }
       if (url.pathname === '/api/feed' && req.method === 'GET') {
         db.prepare('DELETE FROM feed_snapshots WHERE expires<?').run(Date.now());
@@ -418,12 +429,15 @@ export async function createNebulaServer(options: { dataDir: string; publicDir: 
           ensure(row && row.owner === owner, 'Publication not found.', 404);
           ensure(input.revision === row.revision, 'This publication changed in another tab. Reload before saving.', 409);
           const data: StoredPublication = publicationInput(input, owner) as StoredPublication;
-          data.remix = remixStore.validate(input.remix, data, JSON.parse(row.data));
+          const previous = JSON.parse(row.data);
+          ensure(!previous.remix || data.status !== 'published' || previous.status === 'published', 'Public release of remixes is deferred. Keep this remix private.', 409);
+          data.remix = remixStore.validate(input.remix, data, previous);
           db.prepare('UPDATE posts SET data=?,revision=revision+1,updated=? WHERE id=?').run(JSON.stringify(data), now, postId);
         } else {
           rateLimit(req, 'publish', 100, 3600, String(owner));
           const data: StoredPublication = publicationInput(input, owner) as StoredPublication;
-          data.remix = remixStore.validate(input.remix, data);
+          ensure(input.remix == null, 'Create a private remix draft in Remix studio.', 409);
+          data.remix = null;
           postId = Number(db.prepare('INSERT INTO posts(owner,data,created,updated) VALUES(?,?,?,?)').run(owner, JSON.stringify(data), now, now).lastInsertRowid);
         }
         json(res, postDto(db.prepare('SELECT * FROM posts WHERE id=?').get(postId) as PostRow, owner), postMatch ? 200 : 201); return;

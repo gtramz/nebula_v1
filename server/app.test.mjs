@@ -337,70 +337,63 @@ test('notifications are private, paginated, durable and preserve arrivals after 
 });
 
 const remixSettings = original => ({ contributionKind: original.media.kind, sourceId: original.id, sourceRevision: original.revision, startSeconds: 1, endSeconds: 5, baseGain: .5, voiceGain: .5, voiceOffset: 0 });
-test('audio remixes enforce current permission and immutable credit without exposing withdrawn originals', async t => {
-  const app = await fixture(t), owner = app.client(), artist = app.client(), guest = app.client(), investor = app.client();
-  await owner.register('RemixOriginal'); await artist.register('RemixArtist'); await investor.register('RemixInvestor','investor');
-  const base = await (await owner.upload()).json(), mixed = await (await artist.upload()).json(), replacement = await (await artist.upload()).json();
-  let original = await (await owner.request('/api/publications','POST',postInput(base,{title:'Original sound',status:'published',allowRemix:true}))).json();
-  const input = postInput(mixed,{title:'Remixed sound',remix:{...remixSettings(original),artistName:'Forged credit',title:'Fake original'}});
-  assert.equal((await investor.request('/api/publications','POST',input)).status,403);
-  assert.equal((await artist.request('/api/publications','POST',{...input,mediaId:base.id})).status,400);
-  assert.equal((await artist.request('/api/publications','POST',{...input,remix:{...input.remix,sourceRevision:999}})).status,409);
-  assert.equal((await artist.request('/api/publications','POST',{...input,remix:{...input.remix,endSeconds:100}})).status,400);
-  assert.equal((await artist.request('/api/publications','POST',{...input,remix:{...input.remix,endSeconds:1.01}})).status,400);
-  assert.equal((await artist.request('/api/publications','POST',{...input,remix:{...input.remix,baseGain:0}})).status,400);
-  const draft = await (await artist.request('/api/publications','POST',input)).json();
-  assert.equal(draft.remix.artistName,'RemixOriginal'); assert.equal(draft.remix.title,'Original sound');
-  assert.equal(JSON.stringify(draft).includes('sourceMediaId'),false);
-  assert.equal((await guest.request(`/api/publications/${draft.id}`)).status,404);
-  let published = await (await artist.request('/api/publications','POST',{...input,status:'published'})).json();
-  assert.equal((await artist.request('/api/publications','POST',{...input,remix:remixSettings(published)})).status,409);
-  assert.equal((await artist.request(`/api/publications/${published.id}`,'PATCH',{...published,remix:null})).status,400);
-  assert.equal((await artist.request(`/api/publications/${published.id}`,'PATCH',{...published,remix:{...published.remix,sourceId:999}})).status,400);
-  assert.equal((await artist.request(`/api/publications/${published.id}`,'PATCH',{...published,mediaId:replacement.id})).status,400);
-  assert.equal((await artist.request(`/api/publications/${published.id}`,'PATCH',{...published,allowRemix:true})).status,400);
-  original = await (await owner.request(`/api/publications/${original.id}`,'PATCH',{...original,allowRemix:false})).json();
-  assert.equal((await artist.request('/api/publications','POST',{...input,remix:remixSettings(original)})).status,409);
-  assert.equal((await artist.request(`/api/publications/${draft.id}`,'PATCH',{...draft,status:'published'})).status,409);
-  published = await (await artist.request(`/api/publications/${published.id}`,'PATCH',{...published,title:'Renamed remix'})).json();
-  assert.equal(published.status,'published'); assert.equal(published.remix.title,'Original sound');
-  original = await (await owner.request(`/api/publications/${original.id}`,'PATCH',{...original,status:'withdrawn',title:'Private changed title'})).json();
-  assert.equal((await guest.request(base.url)).status,404);
-  const visible = await (await guest.request(`/api/publications/${published.id}`)).json();
-  assert.equal(visible.remix.available,false); assert.equal(visible.remix.title,'Original sound'); assert.equal((await guest.request(mixed.url)).status,200);
-  await app.restart();
-  assert.equal((await (await guest.request(`/api/publications/${published.id}`)).json()).remix.artistName,'RemixOriginal');
-  published = await (await artist.request(`/api/publications/${published.id}`,'PATCH',{...published,status:'withdrawn'})).json();
-  assert.equal((await artist.request(`/api/publications/${published.id}`,'PATCH',{...published,status:'published'})).status,409);
-  original = await (await owner.request(`/api/publications/${original.id}`,'PATCH',{...original,status:'published',allowRemix:true})).json();
-  const newBase = await (await owner.upload()).json();
-  await owner.request(`/api/publications/${original.id}`,'PATCH',{...original,mediaId:newBase.id});
-  assert.equal((await artist.request(`/api/publications/${draft.id}`,'PATCH',{...draft,status:'published'})).status,409);
+async function newDraft(artist, original, requestKey = crypto.randomUUID()) {
+  const response = await artist.request('/api/remix-drafts','POST',{sourceId:original.id,sourceRevision:original.revision,requestKey});
+  assert.equal(response.status,201,await response.clone().text()); return response.json();
+}
+async function privateUpload(artist,draft,bytes=audio,kind='audio') {
+  const response=await artist.request('/api/uploads','POST',bytes,{'X-Remix-Draft':draft.id,'X-Media-Kind':kind,'Content-Type':'application/octet-stream'});
+  assert.equal(response.status,201,await response.clone().text());return response.json();
+}
+const draftInput=(draft,contribution,render,extra={})=>({revision:draft.revision,title:draft.title,description:draft.description,settings:{...draft.settings,startSeconds:1,endSeconds:5,contributionKind:contribution.kind},contributionId:contribution.id,contributionDuration:8,renderId:render?.id??null,...extra});
+test('private editable drafts enforce ownership, source revisions, media privacy, retry and conflict across restart',async t=>{
+ const app=await fixture(t),owner=app.client(),artist=app.client(),other=app.client(),guest=app.client(),investor=app.client();
+ await owner.register('DraftOriginal');await artist.register('DraftArtist');await other.register('DraftOther');await investor.register('DraftInvestor','investor');
+ const base=await(await owner.upload()).json();let original=await(await owner.request('/api/publications','POST',postInput(base,{status:'published',allowRemix:true}))).json();
+ const key=crypto.randomUUID(),create={sourceId:original.id,sourceRevision:original.revision,requestKey:key};
+ assert.equal((await guest.request('/api/remix-drafts')).status,401);assert.equal((await investor.request('/api/remix-drafts','POST',create)).status,403);
+ assert.equal((await artist.request('/api/remix-drafts','POST',{...create,sourceRevision:999})).status,409);
+ let draft=await newDraft(artist,original,key);const path=`/api/remix-drafts/${draft.id}`;
+ assert.match(draft.id,/^[a-f0-9-]{36}$/);assert.equal((await(await artist.request('/api/remix-drafts','POST',create)).json()).id,draft.id);
+ assert.equal((await(await other.request('/api/remix-drafts')).json()).items.length,0);
+ for(const c of [other,owner,guest,investor]) assert.equal((await c.request(path)).status,c===guest?401:c===investor?403:404);
+ const own=await privateUpload(artist,draft),mix=await privateUpload(artist,draft),input=draftInput(draft,own,mix,{title:'Private interpretation'});
+ assert.equal((await other.request(path,'PATCH',input)).status,404);
+ assert.equal((await artist.request(path,'PATCH',{...input,settings:{...input.settings,sourceId:999}})).status,400);
+ assert.equal((await artist.request(path,'PATCH',{...input,settings:{...input.settings,endSeconds:100}})).status,400);
+ draft=await(await artist.request(path,'PATCH',input)).json();assert.equal(draft.revision,2);assert.equal(draft.attribution.artistName,'DraftOriginal');
+ assert.equal((await artist.request(path,'PATCH',input)).status,409);
+ for(const media of [own,mix]) {for(const c of [guest,other,owner]) assert.equal((await c.request(media.url)).status,404);assert.equal((await artist.request(media.url)).status,200);assert.equal((await artist.request(media.url+'?download=1')).status,200);assert.equal((await artist.request(`/api/uploads/${media.id}`,'DELETE')).status,409);assert.equal((await artist.request('/api/publications','POST',postInput(media,{status:'published'}))).status,400);}
+ assert.equal((await(await artist.request('/api/publications?mine=1')).json()).items.length,0);assert.equal((await(await guest.request('/api/feed')).json()).items.length,1);
+ assert.equal((await artist.request('/api/publications','POST',postInput(await(await artist.upload()).json(),{remix:remixSettings(original)}))).status,409);
+ assert.equal((await artist.request(path,'PATCH',draftInput(draft,own,mix,{settings:{...draft.settings,baseGain:.3}}))).status,409);
+ await app.restart();assert.deepEqual(await(await artist.request(path)).json(),draft);
+ const read=await artist.request(`/remix/${original.id}`);assert.equal(read.status,200);assert.equal((await(await artist.request('/api/remix-drafts')).json()).items.length,1);
+ original=await(await owner.request(`/api/publications/${original.id}`,'PATCH',{...original,allowRemix:false})).json();
+ assert.equal((await artist.request(path,'PATCH',draftInput(draft,own,mix))).status,409);assert.equal((await artist.request(path,'PATCH',{revision:draft.revision,action:'prepare-render'})).status,409);
+ assert.equal((await artist.request('/api/uploads','POST',audio,{'X-Remix-Draft':draft.id,'X-Media-Kind':'audio','Content-Type':'application/octet-stream'})).status,409);
+ assert.equal((await artist.request(path)).status,200); // Saved work is retained for its owner.
+ await artist.rpc('logout');assert.equal((await artist.request(path)).status,401);assert.equal((await artist.request(mix.url)).status,404);
 });
 
-test('a private saved remix becomes a separately reviewed proposal with durable attribution', async t => {
-  const app = await fixture(t), owner = app.client(), artist = app.client(), outsider = app.client();
-  await owner.register('RemixProjectOwner'); await artist.register('RemixApplicant'); await outsider.register('RemixOutsider');
-  const project = (await (await owner.rpc('createProject',{title:'Remix project',category:'EP',goalAmount:1000,status:'published'})).json()).result;
-  const offer = await (await owner.request(`/api/projects/${project.id}/offers`,'POST',offerInput)).json();
-  const base = await (await owner.upload()).json(), mixed = await (await artist.upload()).json();
-  const original = await (await owner.request('/api/publications','POST',postInput(base,{status:'published',allowRemix:true,projectId:project.id}))).json();
-  let remix = await (await artist.request('/api/publications','POST',postInput(mixed,{title:'My saved remix',remix:remixSettings(original)}))).json();
-  assert.equal((await owner.request(mixed.url)).status,404);
-  assert.equal((await (await owner.request('/api/collaborations')).json()).items.length,0); // Remix is not an application.
-  const thread = await (await artist.request(`/api/offers/${offer.id}/conversations`,'POST',{})).json();
-  const input = {action:'submit',revision:thread.revision,offerRevision:offer.revision,acceptTerms:true,text:'My interpretation',mediaId:mixed.id,publicationId:remix.id};
-  assert.equal((await outsider.request(`/api/collaborations/${thread.id}`,'PATCH',input)).status,404);
-  assert.equal((await artist.request(`/api/collaborations/${thread.id}`,'PATCH',{...input,publicationId:original.id})).status,400);
-  assert.equal((await artist.request(`/api/collaborations/${thread.id}`,'PATCH',input)).status,200);
-  const detail = await (await owner.request(`/api/collaborations/${thread.id}`)).json();
-  assert.equal(detail.status,'submitted'); assert.equal(detail.submissions[0].remix.title,'My saved remix');
-  assert.equal(detail.submissions[0].remix.originalArtist,'RemixProjectOwner');
-  assert.equal((await owner.request(mixed.url)).status,200); assert.equal((await outsider.request(mixed.url)).status,404);
-  assert.equal((await owner.request(`/api/publications/${remix.id}`)).status,404); // Submission access does not expose a draft post.
-  remix = await (await artist.request(`/api/publications/${remix.id}`,'PATCH',{...remix,title:'Later title'})).json();
-  await app.restart();
-  assert.equal((await (await owner.request(`/api/collaborations/${thread.id}`)).json()).submissions[0].remix.title,'My saved remix');
+test('a private rendered remix shares only its final output through a proposal with durable credit',async t=>{
+ const app=await fixture(t),owner=app.client(),artist=app.client(),other=app.client();await owner.register('ProposalOwner');await artist.register('ProposalArtist');await other.register('ProposalOther');
+ const project=(await(await owner.rpc('createProject',{title:'Private remix project',category:'EP',goalAmount:1000,status:'published'})).json()).result;
+ const offer=await(await owner.request(`/api/projects/${project.id}/offers`,'POST',offerInput)).json();const base=await(await owner.upload()).json();
+ const original=await(await owner.request('/api/publications','POST',postInput(base,{status:'published',allowRemix:true,projectId:project.id}))).json();
+ let draft=await newDraft(artist,original);const own=await privateUpload(artist,draft),mix=await privateUpload(artist,draft);
+ draft=await(await artist.request(`/api/remix-drafts/${draft.id}`,'PATCH',draftInput(draft,own,mix,{title:'My private remix'}))).json();
+ const thread=await(await artist.request(`/api/offers/${offer.id}/conversations`,'POST',{})).json(),path=`/api/collaborations/${thread.id}`;
+ const input={action:'submit',revision:thread.revision,offerRevision:offer.revision,acceptTerms:true,text:'My interpretation',mediaId:mix.id,mediaIds:[mix.id],remixDraftId:draft.id};
+ assert.equal((await owner.request(mix.url)).status,404);
+ assert.equal((await artist.request(path,'PATCH',{...input,remixDraftId:null})).status,400);
+ assert.equal((await artist.request(path,'PATCH',{...input,mediaIds:[mix.id,own.id]})).status,400);
+ assert.equal((await other.request(path,'PATCH',input)).status,404);
+ assert.equal((await artist.request(path,'PATCH',input)).status,200);
+ assert.equal((await owner.request(mix.url)).status,200);assert.equal((await owner.request(own.url)).status,404);assert.equal((await other.request(mix.url)).status,404);
+ assert.equal((await owner.request(`/api/remix-drafts/${draft.id}`)).status,404);
+ await artist.request(`/api/remix-drafts/${draft.id}`,'PATCH',draftInput(draft,own,mix,{title:'Changed after submitting'}));await app.restart();
+ const detail=await(await owner.request(path)).json();assert.equal(detail.submissions[0].remix.title,'My private remix');assert.equal(detail.submissions[0].remix.originalArtist,'ProposalOwner');
 });
 
 test('multi-file work preserves every revision, downloads names and keeps all attachments private across restart', async t => {
@@ -449,54 +442,33 @@ test('multi-file work preserves every revision, downloads names and keeps all at
   assert.equal((await owner.request(path,'PATCH',{action:'complete',revision:row.revision})).status,200);
 });
 
-test('video originals and video remixes share permission, attribution and publication protections', async t => {
-  const app = await fixture(t), owner = app.client(), artist = app.client(), guest = app.client();
-  await owner.register('VideoOriginal'); await artist.register('VideoRemixer');
-  const bytes = await readFile(new URL('../artifacts/nebula/public/discovery-demo/after-hours.webm',import.meta.url));
-  const originalMedia = await (await owner.upload(bytes,'video')).json(), mixed = await (await artist.upload(bytes,'video')).json();
-  let original = await (await owner.request('/api/publications','POST',postInput(originalMedia,{status:'published',allowRemix:true}))).json();
-  const input = postInput(mixed,{remix:remixSettings(original)});
-  let response = await artist.request('/api/publications','POST',input); assert.equal(response.status,201,await response.clone().text());
-  const draft = await response.json(); assert.equal(draft.media.kind,'video'); assert.equal(draft.remix.artistName,'VideoOriginal');
-  assert.equal((await guest.request(mixed.url)).status,404);
-  response = await artist.request('/api/publications','POST',{...input,status:'published'}); assert.equal(response.status,201); const published = await response.json();
-  original = await (await owner.request(`/api/publications/${original.id}`,'PATCH',{...original,allowRemix:false})).json();
-  assert.equal((await artist.request('/api/publications','POST',{...input,remix:remixSettings(original)})).status,409);
-  assert.equal((await artist.request(`/api/publications/${draft.id}`,'PATCH',{...draft,status:'published'})).status,409);
-  assert.equal((await guest.request(`/api/publications/${published.id}`)).status,200);
-  assert.equal((await artist.request(`/api/publications/${published.id}`,'PATCH',{...published,mediaId:originalMedia.id})).status,400);
-  await app.restart(); assert.equal((await (await guest.request(`/api/publications/${published.id}`)).json()).remix.artistName,'VideoOriginal');
+test('private remix format matrix rejects audio over video and mismatched results',async t=>{
+ const app=await fixture(t),owner=app.client(),artist=app.client();await owner.register('MatrixOwner');await artist.register('MatrixArtist');
+ const video=await readFile(new URL('../artifacts/nebula/public/discovery-demo/after-hours.webm',import.meta.url));
+ for(const baseKind of ['audio','video']) {
+  const base=await(await owner.upload(baseKind==='audio'?audio:video,baseKind)).json();const original=await(await owner.request('/api/publications','POST',postInput(base,{status:'published',allowRemix:true}))).json();
+  for(const ownKind of ['audio','video']) for(const outputKind of ['audio','video']) {
+   const draft=await newDraft(artist,original),own=await privateUpload(artist,draft,ownKind==='audio'?audio:video,ownKind),mix=await privateUpload(artist,draft,outputKind==='audio'?audio:video,outputKind);
+   const response=await artist.request(`/api/remix-drafts/${draft.id}`,'PATCH',draftInput(draft,own,mix));const allowed=!(baseKind==='video'&&ownKind==='audio')&&ownKind===outputKind;
+   assert.equal(response.status,allowed?200:400,await response.clone().text());
+  }
+ }
 });
 
-test('unified remix format matrix is enforced and historical remixes retain their original data', async t => {
-  const app = await fixture(t), owner=app.client(), artist=app.client();
-  await owner.register('UnifiedOwner');await artist.register('UnifiedArtist');
-  const bytes=await readFile(new URL('../artifacts/nebula/public/discovery-demo/after-hours.webm',import.meta.url));
-  const audioBase=await(await owner.upload()).json(),videoBase=await(await owner.upload(bytes,'video')).json();
-  const audioOwn=await(await artist.upload()).json(),videoOwn=await(await artist.upload(bytes,'video')).json();
-  const originals=[];
-  for(const media of [audioBase,videoBase]) originals.push(await(await owner.request('/api/publications','POST',postInput(media,{status:'published',allowRemix:true}))).json());
-  let legacy;
-  for(const original of originals) for(const contributionKind of ['audio','video']) for(const result of [audioOwn,videoOwn]) {
-    const response=await artist.request('/api/publications','POST',postInput(result,{remix:{...remixSettings(original),contributionKind}}));
-    const allowed=!(original.media.kind==='video'&&contributionKind==='audio')&&result.kind===contributionKind;
-    assert.equal(response.status,allowed?201:400,await response.clone().text());
-    if(allowed){const saved=await response.json();assert.equal(saved.remix.contributionKind,contributionKind);if(original.media.kind==='video') legacy=saved;}
-  }
-  const missing={...remixSettings(originals[0])};delete missing.contributionKind;
-  assert.equal((await artist.request('/api/publications','POST',postInput(audioOwn,{remix:missing}))).status,400);
-  const db=new DatabaseSync(join(app.dataDir,'nebula.sqlite'));
-  const row=db.prepare('SELECT data FROM posts WHERE id=?').get(legacy.id),previous=JSON.parse(row.data);
-  delete previous.remix.contributionKind;previous.mediaId=audioOwn.id; // Existing audio-over-video draft from before the rule.
-  db.prepare('UPDATE posts SET data=? WHERE id=?').run(JSON.stringify(previous),legacy.id);db.close();
-  await app.restart();
-  legacy=await(await artist.request(`/api/publications/${legacy.id}`)).json();
-  assert.equal(legacy.remix.contributionKind,undefined);assert.equal(legacy.media.kind,'audio');
-  const published=await artist.request(`/api/publications/${legacy.id}`,'PATCH',{...legacy,status:'published'});
-  assert.equal(published.status,200,await published.clone().text());
-  const saved=await published.json();assert.equal(saved.remix.contributionKind,undefined);assert.equal(saved.media.id,audioOwn.id);
-  assert.equal((await artist.request(`/api/publications/${saved.id}`,'PATCH',{...saved,remix:{...saved.remix,contributionKind:'audio'}})).status,400);
-  await app.restart();assert.equal((await(await artist.request(`/api/publications/${saved.id}`)).json()).media.id,audioOwn.id);
+test('historical public and flattened draft remixes remain intact, without enabling new public release',async t=>{
+ const app=await fixture(t),owner=app.client(),artist=app.client(),guest=app.client();await owner.register('HistoricalOwner');const identity=await artist.register('HistoricalArtist');
+ const base=await(await owner.upload()).json(),mixed=await(await artist.upload()).json();let original=await(await owner.request('/api/publications','POST',postInput(base,{status:'published',allowRemix:true,title:'Historical source'}))).json();
+ const db=new DatabaseSync(join(app.dataDir,'nebula.sqlite')),now=new Date().toISOString();
+ const data=postInput(mixed,{status:'published',remix:{...remixSettings(original),sourceMediaId:base.id,artistId:original.artistId,artistName:'HistoricalOwner',title:original.title,projectId:null,grantedAt:now}});delete data.remix.contributionKind;
+ const publicId=Number(db.prepare('INSERT INTO posts(owner,data,created,updated) VALUES(?,?,?,?)').run(identity.user.artistId,JSON.stringify(data),now,now).lastInsertRowid);
+ const privateId=Number(db.prepare('INSERT INTO posts(owner,data,created,updated) VALUES(?,?,?,?)').run(identity.user.artistId,JSON.stringify({...data,status:'draft'}),now,now).lastInsertRowid);db.close();
+ await app.restart();let saved=await(await artist.request(`/api/publications/${publicId}`)).json();assert.equal(saved.media.id,mixed.id);assert.equal(saved.remix.contributionKind,undefined);assert.equal((await guest.request(mixed.url)).status,200);
+ assert.equal((await artist.request(`/api/publications/${publicId}`,'PATCH',{...saved,remix:{...saved.remix,sourceId:999}})).status,400);
+ saved=await(await artist.request(`/api/publications/${publicId}`,'PATCH',{...saved,title:'Renamed'})).json();assert.equal(saved.status,'published');assert.equal(saved.remix.title,'Historical source');
+ const privateSaved=await(await artist.request(`/api/publications/${privateId}`)).json();assert.equal((await artist.request(`/api/publications/${privateId}`,'PATCH',{...privateSaved,status:'published'})).status,409);
+ original=await(await owner.request(`/api/publications/${original.id}`,'PATCH',{...original,status:'withdrawn'})).json();assert.equal((await guest.request(base.url)).status,404);
+ assert.equal((await(await guest.request(`/api/publications/${publicId}`)).json()).remix.available,false);
+ saved=await(await artist.request(`/api/publications/${publicId}`,'PATCH',{...saved,status:'withdrawn'})).json();assert.equal((await guest.request(mixed.url)).status,404);assert.equal((await artist.request(`/api/publications/${publicId}`,'PATCH',{...saved,status:'published'})).status,409);
 });
 
 test('waveform API requires artist access and current original permission even after caching', async t => {

@@ -179,7 +179,7 @@ export default function Discovery({ posts = DEMO_POSTS, live = false, onLoadMore
                 <Action label="Comments" icon={<MessageCircle size={21} />} detail={live ? post.social?.comments ?? 0 : post.comments.length + (activity[post.id]?.comments.length ?? 0)} onClick={() => showPanel('comments', post)} />
                 <Action label="Save" disabled={pending === post.id} pressed={current.saved} icon={<Bookmark size={21} fill={current.saved ? 'currentColor' : 'none'} />} detail={current.saved ? 'saved' : 'save'} onClick={() => toggle(post, 'saved')} />
                 <Action label="Send" icon={<Send size={21} />} detail="send" onClick={() => requireAccount(post, () => showPanel('send', post))} />
-                <Action label={remixReason || 'Remix'} icon={<Disc3 size={21} />} detail={remixDisabled ? user?.role === 'investor' ? 'artists only' : !live ? 'demo only' : 'no remix' : 'remix'} disabled={remixDisabled} onClick={() => requireAccount(post, () => { feed.current?.querySelectorAll<HTMLMediaElement>('video, audio').forEach(media => media.pause()); navigate(`/remix/${post.id.slice(5)}`); })} />
+                <Action label={remixReason || 'Remix'} icon={<Disc3 size={21} />} detail={remixDisabled ? user?.role === 'investor' ? 'artists only' : !live ? 'demo only' : 'no remix' : 'remix'} disabled={remixDisabled} onClick={() => requireAccount(post, () => { feed.current?.querySelectorAll<HTMLMediaElement>('video, audio').forEach(media => media.pause()); navigate('/studio/remix', { state: { sourceId: Number(post.id.slice(5)), start: true } }); })} />
               </DiscoveryActionRail>
           </article>;
         })}

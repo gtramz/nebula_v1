@@ -106,3 +106,5 @@ export function useUpdateProjectVisibility() {
 
 export type { CollaborationOffer, OfferInput, Compensation, Collaboration, CollaborationDetail } from './collaborations';
 export type { ArtistNotification, NotificationKind, NotificationPage, NotificationSummary } from './notifications';
+
+export type { RemixDraft, RemixDraftUpdate } from './remix-drafts';

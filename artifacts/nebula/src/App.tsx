@@ -14,7 +14,7 @@ import { AppShell } from '@/components/shell/app-shell';
 import { SavedPublications } from '@/features/discovery/social';
 import { CollaborationsPage, CollaborationPage } from '@/features/collaborations';
 import { NotificationsPage } from '@/features/notifications';
-import { RemixPage } from '@/features/remix';
+import { RemixPage, LegacyRemixPage } from '@/features/remix';
 import Home from '@/pages/home';
 import Explore from '@/pages/explore';
 import Discovery from '@/features/discovery/live-discovery';
@@ -44,8 +44,10 @@ function Router() {
           <Route path="/saved" component={SavedPublications} />
           <Route path="/collaborations" component={CollaborationsPage} />
           <Route path="/notifications" component={NotificationsPage} />
-          <Route path="/remix/:id/proposal"><RemixPage proposal /></Route>
-          <Route path="/remix/:id"><RemixPage /></Route>
+          <Route path="/remix/:id/proposal"><LegacyRemixPage proposal /></Route>
+          <Route path="/remix/:id"><LegacyRemixPage /></Route>
+          <Route path="/studio/remix/proposal"><RemixPage proposal /></Route>
+          <Route path="/studio/remix"><RemixPage /></Route>
           <Route path="/collaborations/:id" component={CollaborationPage} />
           <Route path="/studio" component={Publications} />
           <Route path="/publish" component={PublicationEditor} />
