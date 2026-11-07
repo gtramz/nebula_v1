@@ -50,6 +50,21 @@ export function useListProjects(params: ListProjectsParams = {}, options?: Local
 export function useListArtists(params: ListArtistsParams = {}, options?: LocalQueryOptions) {
   return useLocalQuery(['artists', params], () => getLocalStore().listArtists(params), options);
 }
+// Search owns one cancellable request pair. Key by the current input (not the
+// debounced value) so edits and composition immediately detach obsolete work.
+export function useCatalogSearch(search: string, enabled: boolean, composing: boolean) {
+  const store = getLocalStore();
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const user = store.getCurrentUser();
+  return useQuery({
+    queryKey: ['catalog-search', search, composing, snapshot, user?.role ?? 'guest', user?.artistId ?? user?.investorId ?? null],
+    enabled, retry: false, staleTime: 30_000, refetchOnWindowFocus: false, networkMode: 'always',
+    queryFn: async ({ signal }) => {
+      if ('searchCatalog' in store) return store.searchCatalog(search, signal);
+      return { artists: store.listArtists({ search }), projects: store.listProjects({ search }) };
+    },
+  });
+}
 export function useGetProject(id: number, options?: LocalQueryOptions) {
   return useLocalQuery(getGetProjectQueryKey(id), () => getLocalStore().getProject(id), options);
 }

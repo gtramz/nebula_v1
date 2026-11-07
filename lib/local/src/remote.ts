@@ -44,6 +44,29 @@ export function createRemoteStore() {
     return response.result;
   }])) as RemoteMethods;
   return {
+    async searchCatalog(search: string, signal: AbortSignal) {
+      const request = new AbortController();
+      const abort = () => request.abort(signal.reason);
+      signal.addEventListener('abort', abort, { once: true });
+      if (signal.aborted) abort();
+      async function read<K extends 'listArtists' | 'listProjects'>(method: K) {
+        const response = await apiRequest<{ result: ReturnType<LocalStore[K]>; user: SessionUser | null }>('/api/rpc', {
+          method: 'POST', signal: request.signal, headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ method, args: [{ search }] }),
+        });
+        request.signal.throwIfAborted();
+        setUser(response.user);
+        return response.result;
+      }
+      try {
+        const [artists, projects] = await Promise.all([read('listArtists'), read('listProjects')]);
+        return { artists, projects };
+      } catch (error) {
+        // Do not leave the other half running after this query has failed.
+        request.abort();
+        throw error;
+      } finally { signal.removeEventListener('abort', abort); }
+    },
     ...rpc, refresh, getCurrentUser: () => user, getSnapshot: () => String(revision),
     subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     notify,

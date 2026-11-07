@@ -481,3 +481,34 @@ The page reserves the sidebar width or bottom-bar height. Discovery keeps a
 100dvh shell and repositions its current post after viewport changes without
 remounting the page. Resizing Remix preserves form fields and the generated mix.
 No server endpoints, database schema or product data are changed by navigation.
+
+## Search interaction (handoff UX-03)
+
+`/search` searches artist names and projects through the existing `listArtists`
+and `listProjects` RPC methods. There are no new endpoints, dependencies or data
+migrations. The browser-only preview uses the same catalog selector against its
+local store, without network requests.
+
+The input waits 300 ms after editing, trims surrounding whitespace and requires
+at least two characters (maximum 200). IME composition defers searching until the
+text is committed. Each search is one query containing both result sets; its key
+includes the current input, composition state, store revision and viewer identity.
+Changing or clearing the input detaches obsolete queries and aborts their fetches.
+Results from another query are never shown under the new text. Successful results
+are reusable for 30 seconds; input edits still wait for the debounce. Window focus
+does not refetch search; catalog mutations invalidate it through the existing
+query client, and store revisions/identity changes get a new key.
+
+Initial, short-query, loading, no-results, result-count and failure states have a
+polite status announcement. A failed request shows an explicit retry for the pair;
+partial results are not presented as a complete search. Clearing restores input
+focus. Icon and clear button are centered inside the 56 px field, independently
+of the divider padding. Clear has a 44 px touch target; native duplicate WebKit
+search decoration and the cyan focus embellishment are removed. Native text
+selection and the application's keyboard-focus outline remain intact.
+
+`tests-shared/search.spec.ts` covers debounce/request counts, cache reuse, IME,
+abort signals, late responses, clearing, failure/retry, empty results, alignment,
+keyboard focus and touch targets in desktop Chrome and emulated mobile Chrome.
+Existing shared social tests verify real artist/project search, navigation and
+network recovery. These checks do not constitute physical iOS/Safari testing.
