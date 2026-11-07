@@ -1,3 +1,4 @@
+import { CURRENCY } from "@nebula/local";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
@@ -5,10 +6,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatMoney(amount: number, currency = "MXN"): string {
-  return new Intl.NumberFormat("es-MX", {
+export function formatMoney(amount: number): string {
+  return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency,
-    maximumFractionDigits: 0,
+    currency: CURRENCY,
+    currencyDisplay: "code",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(amount);
 }

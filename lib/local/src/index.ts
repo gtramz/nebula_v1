@@ -1,15 +1,30 @@
+import { useEffect, useSyncExternalStore } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryKey } from '@tanstack/react-query';
-import { getLocalStore, type AccountRegistration, type LocalLogin, type ArtistProfileInput } from './store';
-import type { InvestmentInput, ListArtistsParams, ListProjectsParams, ProjectInput, ProjectUpdate } from './types';
+import { type AccountRegistration, type LocalLogin, type ArtistProfileInput } from './store';
+import { isServerMode } from './remote';
+import { getLocalStore } from './browser';
+import type { InvestmentInput, ListArtistsParams, ListProjectsParams, ProjectInput, ProjectUpdate, PublicVisibility } from './types';
 
 export * from './types';
 export type { ArtistProfileInput } from './store';
-export { getLocalStore } from './store';
+export { PreviewDataError } from './store';
+export { getLocalStore, initializeLocalStore, exportBrowserBackup } from './browser';
+export { CURRENCY, sumMoney } from './money';
+export { isServerMode, apiRequest, transferBrowserAccount } from './remote';
+export type { Publication, PublicationInput, UploadedMedia, RemixInput, RemixAttribution, Waveform } from './publications';
 
 type LocalQueryOptions = { query?: { enabled?: boolean; queryKey?: QueryKey; staleTime?: number; retry?: boolean } };
 
-function useLocalQuery<T>(key: QueryKey, read: () => T, options?: LocalQueryOptions) {
-  return useQuery({ queryKey: key, queryFn: () => Promise.resolve(read()), networkMode: 'always', retry: false, ...options?.query });
+function useLocalQuery<T>(key: QueryKey, read: () => T | Promise<T>, options?: LocalQueryOptions) {
+  const store = getLocalStore();
+  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const queryClient = useQueryClient();
+  useEffect(() => { void queryClient.invalidateQueries(); }, [snapshot, queryClient]);
+  const user = store.getCurrentUser();
+  return useQuery({ ...options?.query,
+    queryKey: [...(options?.query?.queryKey ?? key), 'viewer', user?.role ?? 'guest', user?.artistId ?? user?.investorId ?? null],
+    refetchOnWindowFocus: isServerMode(),
+    queryFn: () => Promise.resolve(read()), networkMode: 'always', retry: false });
 }
 
 function useLocalMutation<T, V>(write: (variables: V) => T | Promise<T>) {
@@ -17,7 +32,10 @@ function useLocalMutation<T, V>(write: (variables: V) => T | Promise<T>) {
   return useMutation<T, Error, V>({
     networkMode: 'always',
     mutationFn: async (variables) => write(variables),
-    onSuccess: async () => { await queryClient.invalidateQueries(); },
+    onSuccess: async () => {
+      queryClient.removeQueries({ type: 'inactive' });
+      await queryClient.invalidateQueries();
+    },
   });
 }
 
@@ -72,5 +90,19 @@ export function useToggleProjectSupport() {
   return useLocalMutation((variables: { id: number }) => getLocalStore().toggleProjectSupport(variables.id));
 }
 export function useResetPreview() {
-  return useLocalMutation((_variables: void) => getLocalStore().reset());
+  return useLocalMutation((_variables: void) => getLocalStore().clearDemoData());
 }
+
+export function useAuthEvents() {
+  return useLocalQuery(['account-activity'], () => getLocalStore().listAuthEvents());
+}
+
+export function useReceivedInvestments() {
+  return useLocalQuery(['received'], () => getLocalStore().listReceivedInvestments());
+}
+export function useUpdateProjectVisibility() {
+  return useLocalMutation((variables: { projectId: number; data: PublicVisibility }) => getLocalStore().updateProjectVisibility(variables.projectId, variables.data));
+}
+
+export type { CollaborationOffer, OfferInput, Compensation, Collaboration, CollaborationDetail } from './collaborations';
+export type { ArtistNotification, NotificationKind, NotificationPage, NotificationSummary } from './notifications';

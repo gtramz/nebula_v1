@@ -8,15 +8,21 @@
   "license": "MIT",
   "packageManager": "pnpm@11.21.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=24.17.0"
   },
   "scripts": {
     "dev": "pnpm --filter @nebula/ui dev",
-    "build": "pnpm run typecheck && pnpm --filter @nebula/ui build",
+    "build": "pnpm run typecheck && pnpm --filter @nebula/ui build && pnpm build:server",
+    "build:server": "tsc -p server/tsconfig.json",
+    "start": "node dist-server/server/main.js",
+    "test:server": "pnpm build:server && node --test server/*.test.mjs",
+    "test:shared": "playwright test --config playwright.shared.config.ts",
     "preview": "pnpm --filter @nebula/ui serve",
     "typecheck": "tsc --build && pnpm --filter @nebula/ui typecheck",
     "test": "vitest run",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "test:collaborations": "playwright test --config playwright.collaborations.config.ts",
+    "test:remix": "playwright test --config playwright.remix.config.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

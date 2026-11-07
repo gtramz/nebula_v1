@@ -9,8 +9,8 @@ export default function Search() {
   const [query, setQuery] = useState("");
   const debouncedQuery = query;
 
-  const { data: artists } = useListArtists({ search: debouncedQuery }, { query: { queryKey: ['artists', debouncedQuery], enabled: debouncedQuery.length > 1 } });
-  const { data: projects } = useListProjects({ search: debouncedQuery }, { query: { queryKey: ['projects', debouncedQuery], enabled: debouncedQuery.length > 1 } });
+  const { data: artists, isLoading: artistsLoading, error: artistsError, refetch: reloadArtists } = useListArtists({ search: debouncedQuery }, { query: { queryKey: ['artists', debouncedQuery], enabled: debouncedQuery.length > 1 } });
+  const { data: projects, isLoading: projectsLoading, error: projectsError, refetch: reloadProjects } = useListProjects({ search: debouncedQuery }, { query: { queryKey: ['projects', debouncedQuery], enabled: debouncedQuery.length > 1 } });
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -41,7 +41,7 @@ export default function Search() {
           )}
         </div>
 
-        {debouncedQuery.length > 1 ? (
+        {(artistsError || projectsError) && debouncedQuery.length > 1 ? <div role="alert" className="space-y-3"><p>{artistsError?.message ?? projectsError?.message}</p><button className="underline" onClick={() => { void reloadArtists(); void reloadProjects(); }}>Try again</button></div> : (artistsLoading || projectsLoading) && debouncedQuery.length > 1 ? <p role="status">Searching…</p> : debouncedQuery.length > 1 ? (
           <div className="space-y-12 pb-24">
             {artists && artists.length > 0 && (
               <section className="space-y-4">

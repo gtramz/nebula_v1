@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-server/
 *.tsbuildinfo
 .env
 .env.*
@@ -9,8 +10,15 @@ dist/
 coverage/
 playwright-report/
 test-results/
+test-results-offline/
 .data/
 *.db
 *.sqlite*
 *.pem
 *.key
+
+test-results-collaborations/
+test-results-remix/
+
+test-results-browser/
+test-results-discovery*/

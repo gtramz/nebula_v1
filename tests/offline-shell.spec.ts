@@ -105,7 +105,6 @@ test('all interface flows run with no network after the first page load', async 
   await logout(page);
 
   await go(page, '/login');
-  await page.getByRole('button', { name: 'artist', exact: true }).click();
   await page.getByRole('textbox', { name: 'email', exact: true }).fill('artist@example.invalid');
   await page.getByLabel('password', { exact: true }).fill('preview123');
   await page.getByRole('button', { name: 'log in', exact: true }).click();
@@ -115,7 +114,8 @@ test('all interface flows run with no network after the first page load', async 
   await page.getByRole('button', { name: 'DELETE', exact: true }).click();
   await expect(page.getByText('NO PROJECTS YET', { exact: true })).toBeVisible();
   page.once('dialog', (dialog) => dialog.accept());
-  await page.getByRole('button', { name: 'clear preview', exact: true }).click();
+  await page.getByRole('button', { name: 'More', exact: true }).filter({visible:true}).click();
+  await page.getByRole('menuitem', { name: 'clear demo data', exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
   await go(page, '/explore');
   await expect(page.getByText('no projects found', { exact: true })).toBeVisible();

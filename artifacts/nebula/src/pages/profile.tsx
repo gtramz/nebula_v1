@@ -3,6 +3,8 @@ import { ImageUpload } from "@/components/image-upload";
 import { useAuth } from "@/context/AuthContext";
 import {
   useLogout,
+  isServerMode,
+  useAuthEvents,
   useUpdateArtistProfile,
   type ArtistProfileInput,
   useListProjects,
@@ -89,10 +91,25 @@ export default function Profile() {
           </div>
         </div>
 
+        {isServerMode() && <Link href="/saved" className="block border border-border p-6 hover:bg-surfaceAlt"><h2 className="text-xl font-bold">Saved publications</h2><p className="text-sm text-muted mt-2">Your private collection of sounds and videos.</p></Link>}
         {user.role === "artist" ? <ArtistDashboard /> : <InvestorDashboard />}
+        <AccountActivity />
       </ContentWidth>
     </div>
   );
+}
+
+function AccountActivity() {
+  const { data: events = [] } = useAuthEvents();
+  const labels = { registered: 'Account created', login: 'Successful login', login_failed: 'Failed login', logout: 'Logged out', demo_cleared: 'Demo projects and pledges cleared' };
+  return <section aria-label="Account activity" className="space-y-4 pb-16">
+    <h2 className="text-xl font-bold">Account activity</h2>
+    <p className="text-sm text-muted">{isServerMode() ? 'Recent sign-ins and account activity on this server.' : 'Your recent activity in this browser. Earlier activity cannot be reconstructed.'}</p>
+    {!events.length ? <p>No activity recorded yet.</p> : <ul className="space-y-3">{events.map((event, index) =>
+      <li key={`${event.at}-${index}`} className="border-b border-border pb-3 text-sm flex flex-wrap justify-between gap-2">
+        <span>{labels[event.type]}</span><time dateTime={event.at}>{new Date(event.at).toLocaleString()}</time>
+      </li>)}</ul>}
+  </section>;
 }
 
 function InvestorDashboard() {
@@ -163,6 +180,14 @@ function ArtistDashboard() {
 
   return (
     <div className="space-y-12 pb-24">
+      {isServerMode() && <Link href="/collaborations" className="block border border-border p-6 hover:bg-surfaceAlt"><h2 className="text-xl font-bold">Collaborations</h2><p className="text-sm text-muted mt-2">Review proposals, send messages and manage deliveries.</p></Link>}
+      {isServerMode() && <Link href="/studio" className="block border border-border p-6 hover:bg-surfaceAlt">
+        <h2 className="text-xl font-bold">Your publications</h2><p className="text-sm text-muted mt-2">Upload audio or video, manage drafts and choose your remix permissions.</p>
+      </Link>}
+      <Link href="/received" className="block border border-border p-6 hover:bg-surfaceAlt">
+        <h2 className="text-xl font-bold">Contributions received</h2>
+        <p className="text-sm text-muted mt-2">Private history, project totals and contributions to removed projects.</p>
+      </Link>
       <section className="space-y-4">
         <div className="flex items-center justify-between px-2">
           <h2 className="voice text-[10px] text-muted">ARTIST PROFILE</h2>
@@ -273,7 +298,7 @@ function ProjectEditor({
     title: project?.title || "",
     category: project?.category || "Album",
     goalAmount: project?.goalAmount || 10000,
-    currency: ProjectInputCurrency.MXN,
+    currency: ProjectInputCurrency.USD,
     pitch: project?.pitch || "",
     story: project?.story || "",
     status: (project?.status as ProjectInputStatus) || ProjectInputStatus.draft,
@@ -309,7 +334,7 @@ function ProjectEditor({
   };
 
   const handleDelete = () => {
-    if (project && confirm("Are you sure? This cannot be undone.")) {
+    if (project && confirm("Remove this project from discovery? Existing pledges and receipts will be kept.")) {
       deleteProject.mutate(
         { id: project.id },
         {
@@ -375,13 +400,15 @@ function ProjectEditor({
           </div>
           <div className="space-y-2">
             <label htmlFor="project-goal" className="voice text-[10px] text-muted ml-2">
-              GOAL (MXN)
+              GOAL (USD)
             </label>
             <input
               id="project-goal"
               type="number"
               required
-              min="100"
+              min="0.01"
+              max="100000000"
+              step="0.01"
               value={formData.goalAmount}
               onChange={(e) =>
                 setFormData({ ...formData, goalAmount: Number(e.target.value) })

@@ -1,20 +1,21 @@
 import { useState, type FormEvent } from "react";
 import { Link, useLocation } from "wouter";
-import { useLogin } from "@nebula/local";
+import { useLogin, isServerMode, transferBrowserAccount, initializeLocalStore } from "@nebula/local";
 import { Loader2 } from "lucide-react";
 import { AntiqLogo } from "@/components/antiq-logo";
 
 export default function Login() {
   const [, setLocation] = useLocation();
-  const [role, setRole] = useState<"investor" | "artist">("investor");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const login = useLogin();
+  const [transferring, setTransferring] = useState(false);
+  const [transferError, setTransferError] = useState('');
 
   const handleLogin = (event: FormEvent) => {
     event.preventDefault();
-    login.mutate({ data: { email, password, role } }, {
-      onSuccess: () => { setLocation(role === "artist" ? "/profile" : "/explore"); },
+    login.mutate({ data: { email, password } }, {
+      onSuccess: (user) => { setLocation(user.role === "artist" ? "/profile" : "/explore"); },
     });
   };
 
@@ -24,18 +25,12 @@ export default function Login() {
         <AntiqLogo className="h-9 w-6" imageScaleClass="h-[272%] w-auto" backArrow />
       </Link>
       <div className="w-full max-w-sm flex flex-col gap-8">
-        <div className="text-center space-y-2">
-          <h1 className="text-4xl font-display font-bold text-ink text-veil">welcome back</h1>
-          <p className="text-muted">continue with a profile created in this tab.</p>
-        </div>
-        <div role="group" aria-label="profile type" className="grid grid-cols-2 gap-3">
-          {(["investor", "artist"] as const).map((item) => (
-            <button key={item} type="button" aria-pressed={role === item} onClick={() => { setRole(item); login.reset(); }}
-              className={`py-3 border text-xs voice transition ${role === item ? "border-[#18d9ff] text-[#18d9ff]" : "border-border text-muted"}`}>
-              {item}
-            </button>
-          ))}
-        </div>
+        <h1 aria-label="Antiq Nebula" className="flex items-center justify-center gap-4 text-5xl sm:text-6xl font-display font-bold tracking-tighter text-ink">
+          <span aria-hidden="true">
+            <AntiqLogo className="h-14 w-9" imageScaleClass="h-[272%] w-auto" />
+          </span>
+          nebula
+        </h1>
         <form onSubmit={handleLogin} className="flex flex-col gap-4">
           <label className="space-y-2">
             <span className="text-[10px] voice text-muted">email</span>
@@ -53,6 +48,16 @@ export default function Login() {
           </button>
           {login.isError && <p role="alert" className="text-danger text-sm text-center">{login.error.message}</p>}
         </form>
+        {isServerMode() && <div className="text-center space-y-2">
+          <button className="text-xs text-muted underline disabled:opacity-50" disabled={transferring || login.isPending} onClick={async () => {
+            setTransferring(true); setTransferError('');
+            try { await transferBrowserAccount({ email, password }); await initializeLocalStore(); setLocation('/profile'); }
+            catch (error) { setTransferError(error instanceof Error ? error.message : 'Could not transfer this account.'); }
+            finally { setTransferring(false); }
+          }}>{transferring ? 'Transferring…' : 'Transfer my browser-only account'}</button>
+          <p className="text-xs text-muted">Enter its email and password above. Only your profile is transferred; old browser data stays intact.</p>
+          {transferError && <p role="alert" className="text-danger text-sm">{transferError}</p>}
+        </div>}
         <p className="text-center text-muted text-sm">don't have a profile? <Link href="/register" className="text-cream hover:underline font-medium">sign up</Link></p>
       </div>
     </div>

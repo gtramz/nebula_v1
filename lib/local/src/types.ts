@@ -112,7 +112,7 @@ export interface Project {
   raisedAmount: number;
   backersCount: number;
   supportsCount: number;
-  currency: string;
+  currency: 'USD';
   /** @nullable */
   returnModel?: string | null;
   useOfFunds?: UseOfFundsItem[];
@@ -134,7 +134,6 @@ export type ProjectInputCurrency = typeof ProjectInputCurrency[keyof typeof Proj
 
 
 export const ProjectInputCurrency = {
-  MXN: 'MXN',
   USD: 'USD',
 } as const;
 
@@ -265,10 +264,15 @@ export interface ProjectUpdate {
   status?: ProjectUpdateStatus;
 }
 
+export interface PublicVisibility {
+  showName: boolean;
+  showAmount: boolean;
+}
+
 export interface BackerEntry {
-  name: string;
-  amount: number;
-  createdAt: string;
+  publicId: string;
+  name: string | null;
+  amount: number | null;
 }
 
 export interface SupporterEntry {
@@ -285,6 +289,7 @@ export interface ProjectDetail {
   backers: BackerEntry[];
   supporters: SupporterEntry[];
   viewerHasSupported?: boolean;
+  viewerVisibility?: PublicVisibility;
 }
 
 export interface SupportState {
@@ -293,6 +298,7 @@ export interface SupportState {
 }
 
 export interface InvestmentInput {
+  publicVisibility?: PublicVisibility;
   /** @nullable */
   projectId?: number | null;
   /** @nullable */
@@ -305,6 +311,8 @@ export interface InvestmentInput {
 }
 
 export interface Investment {
+  publicVisibility?: PublicVisibility;
+  projectArchived?: boolean;
   id: number;
   /** @nullable */
   projectId?: number | null;
@@ -315,9 +323,13 @@ export interface Investment {
   /** @nullable */
   artistName?: string | null;
   amount: number;
-  currency: string;
+  currency: 'USD';
   status: string;
   createdAt: string;
+}
+
+export interface ReceivedInvestment extends Investment {
+  investorName: string;
 }
 
 export interface OverviewStats {

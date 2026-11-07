@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createLocalStore, STORAGE_KEY } from './store';
+import { createLocalStore, PreviewDataError, STORAGE_KEY } from './store';
 
 function fixture() {
   const values = new Map<string, string>();
@@ -37,8 +37,8 @@ describe('browser-only preview flows', () => {
     store.logout();
     expect(store.listProjects()).toEqual([]);
     expect(store.getProject(draft.id)).toBeNull();
-    await expect(store.login({ ...credentials, password: 'incorrect', role: 'artist' })).rejects.toThrow();
-    await store.login({ ...credentials, role: 'artist' });
+    await expect(store.login({ ...credentials, password: 'incorrect' })).rejects.toThrow();
+    await store.login(credentials);
     store.updateProject(draft.id, { status: 'funding', title: 'Published Release' });
     expect(store.listProjects({ search: 'published' })).toHaveLength(1);
     expect(createLocalStore(storage).getCurrentUser()?.artistId).toBe(artist.artistId);
@@ -54,7 +54,7 @@ describe('browser-only preview flows', () => {
     expect(() => store.updateProject(project.id, { title: 'Changed' })).toThrow('does not belong');
     expect(() => store.deleteProject(project.id)).toThrow('does not belong');
     expect(() => store.createInvestment({ projectId: project.id, amount: 500 })).toThrow();
-    await store.register({ ...credentials, role: 'investor' });
+    await store.register({ ...credentials, email: 'investor@example.invalid', role: 'investor' });
     expect(() => store.createProject(projectInput)).toThrow();
     expect(() => store.toggleProjectSupport(project.id)).toThrow();
   });
@@ -63,7 +63,7 @@ describe('browser-only preview flows', () => {
     const { store } = fixture();
     await store.register({ ...credentials, role: 'artist' });
     const project = store.createProject(projectInput);
-    await store.register({ ...credentials, name: 'Investor One', role: 'investor' });
+    await store.register({ ...credentials, email: 'investor@example.invalid', name: 'Investor One', role: 'investor' });
     expect(() => store.createInvestment({ projectId: project.id, amount: -1 })).toThrow();
     expect(() => store.createInvestment({ projectId: project.id, amount: NaN })).toThrow();
     const pledge = store.createInvestment({ projectId: project.id, amount: 500 });
@@ -104,5 +104,85 @@ describe('browser-only preview flows', () => {
     expect(store.getCurrentUser()).toBeNull();
     expect(store.listArtists()).toEqual([]);
     expect(store.listProjects()).toEqual([]);
+  });
+
+  it('retains archived project receipts, totals and ownership while blocking new contributions', async () => {
+    const { store, storage } = fixture();
+    const artist = await store.register({ ...credentials, role: 'artist' });
+    const project = store.createProject(projectInput);
+    await store.register({ ...credentials, email: 'investor@example.invalid', role: 'investor' });
+    const pledge = store.createInvestment({ projectId: project.id, amount: 200.75 });
+    await store.login(credentials);
+    store.deleteProject(project.id);
+    expect(store.listProjects()).toEqual([]);
+    expect(store.getProject(project.id)).toBeNull();
+    expect(store.getArtist(artist.artistId!)?.totalRaised).toBe(200.75);
+    expect(store.listArtists()[0]).toMatchObject({ totalRaised: 200.75, projectCount: 0 });
+    expect(() => store.updateProject(project.id, { status: 'funding' })).toThrow();
+    expect(() => store.toggleProjectSupport(project.id)).toThrow('not open');
+    expect(store.getInvestment(pledge.id)).toBeNull();
+    await store.login({ ...credentials, email: 'investor@example.invalid' });
+    expect(() => store.createInvestment({ projectId: project.id, amount: 100 })).toThrow('not open');
+    expect(store.getInvestment(pledge.id)).toMatchObject({ amount: 200.75, currency: 'USD', projectArchived: true });
+    expect(createLocalStore(storage).listMyInvestments()).toHaveLength(1);
+    store.logout();
+    expect(store.getInvestment(pledge.id)).toBeNull();
+  });
+
+  it('enforces USD and exact cents for creation, updates and aggregates', async () => {
+    const { store } = fixture();
+    await store.register({ ...credentials, role: 'artist' });
+    expect(() => store.createProject({ ...projectInput, currency: 'EUR' as never })).toThrow('Only USD');
+    expect(() => store.createProject({ ...projectInput, goalAmount: 100.001 })).toThrow('decimal');
+    const project = store.createProject({ ...projectInput, goalAmount: 1000.25 });
+    expect(project.currency).toBe('USD');
+    expect(store.updateProject(project.id, { title: 'Updated' }).currency).toBe('USD');
+    expect(() => store.updateProject(project.id, { currency: 'EUR' } as never)).toThrow('Only USD');
+    await store.register({ ...credentials, email: 'investor@example.invalid', role: 'investor' });
+    expect(() => store.createInvestment({ projectId: project.id, amount: 100.001 })).toThrow('decimal');
+    store.createInvestment({ projectId: project.id, amount: 100.10 });
+    store.createInvestment({ projectId: project.id, amount: 100.20 });
+    expect(store.getProject(project.id)?.project.raisedAmount).toBe(200.30);
+  });
+
+  it.each(['{broken', '', 'null', '{"version":99}', '{"version":3,"accounts":[null]}'])(
+    'allows backup and explicit reset of unreadable data: %s', raw => {
+      const { store, storage } = fixture();
+      storage.setItem(STORAGE_KEY, raw);
+      expect(() => store.getCurrentUser()).toThrow(PreviewDataError);
+      expect(store.exportData()).toBe(raw);
+      store.reset();
+      expect(store.getCurrentUser()).toBeNull();
+      expect(store.listProjects()).toEqual([]);
+    },
+  );
+
+  it('detects invalid records and broken references inside valid JSON', async () => {
+    const { store, storage } = fixture();
+    await store.register({ ...credentials, role: 'artist' });
+    store.createProject(projectInput);
+    const raw = storage.getItem(STORAGE_KEY)!;
+    const invalidRecord = JSON.parse(raw);
+    invalidRecord.projects[0].title = 42;
+    storage.setItem(STORAGE_KEY, JSON.stringify(invalidRecord));
+    expect(() => store.getCurrentUser()).toThrow(PreviewDataError);
+    const invalidReference = JSON.parse(raw);
+    invalidReference.projects[0].artistId = 999;
+    storage.setItem(STORAGE_KEY, JSON.stringify(invalidReference));
+    expect(() => store.getCurrentUser()).toThrow(PreviewDataError);
+    const invalidStatus = JSON.parse(raw);
+    invalidStatus.projects[0].status = ['funding'];
+    storage.setItem(STORAGE_KEY, JSON.stringify(invalidStatus));
+    expect(() => store.getCurrentUser()).toThrow(PreviewDataError);
+  });
+
+  it('reports unavailable reads and failed resets without pretending data was cleared', () => {
+    const denied = createLocalStore({ getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); } });
+    expect(() => denied.getSnapshot()).toThrow(PreviewDataError);
+    expect(() => denied.reset()).toThrow('unavailable');
+    const raw = '{broken';
+    const full = createLocalStore({ getItem: () => raw, setItem: () => { throw new Error('quota'); } });
+    expect(() => full.reset()).toThrow('full or unavailable');
+    expect(full.exportData()).toBe(raw);
   });
 });

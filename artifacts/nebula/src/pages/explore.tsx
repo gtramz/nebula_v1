@@ -8,7 +8,7 @@ const CATEGORIES = ["all", "album", "ep", "single", "tour", "video"];
 export default function Explore() {
   const [category, setCategory] = useState("all");
 
-  const { data: projects, isLoading: projectsLoading } = useListProjects(
+  const { data: projects, isLoading: projectsLoading, error, refetch } = useListProjects(
     category === "all" ? {} : { category: category.toLowerCase() },
     { query: { queryKey: ['projects', category] } }
   );
@@ -31,7 +31,7 @@ export default function Explore() {
         </div>
 
         <div className="px-4 lg:px-0">
-          {projectsLoading ? (
+          {error ? <div role="alert" className="space-y-3"><p>{error.message}</p><button className="underline" onClick={() => void refetch()}>Try again</button></div> : projectsLoading ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-12">
               {[1,2,3].map((i) => (
                 <div key={i} className="h-[400px] border-t border-border animate-pulse" />

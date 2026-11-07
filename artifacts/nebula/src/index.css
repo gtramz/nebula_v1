@@ -1,6 +1,5 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
-@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -118,3 +117,6 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .animate-nebula-drift { animation: nebula-drift 26s ease-in-out infinite alternate; }
 .animate-nebula-drift-reverse { animation: nebula-drift-reverse 32s ease-in-out infinite alternate; }
 .antiq-logo-piece { transition: transform 300ms ease-out; }
+
+/* Timeline selections are ranges, not pill-shaped action buttons. */
+.remix-waveform button { border-radius: 0 !important; }

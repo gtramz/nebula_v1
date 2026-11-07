@@ -11,8 +11,14 @@ import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 import { AuthProvider } from '@/context/AuthContext';
 import { AppShell } from '@/components/shell/app-shell';
 
+import { SavedPublications } from '@/features/discovery/social';
+import { CollaborationsPage, CollaborationPage } from '@/features/collaborations';
+import { NotificationsPage } from '@/features/notifications';
+import { RemixPage } from '@/features/remix';
 import Home from '@/pages/home';
 import Explore from '@/pages/explore';
+import Discovery from '@/features/discovery/live-discovery';
+import { Publications, PublicationEditor } from '@/pages/publications';
 import Search from '@/pages/search';
 import ArtistProfile from '@/pages/artist';
 import ProjectDetail from '@/pages/project';
@@ -34,10 +40,21 @@ function Router() {
         <Switch>
           <Route path="/" component={Home} />
           <Route path="/explore" component={Explore} />
+          <Route path="/discovery" component={Discovery} />
+          <Route path="/saved" component={SavedPublications} />
+          <Route path="/collaborations" component={CollaborationsPage} />
+          <Route path="/notifications" component={NotificationsPage} />
+          <Route path="/remix/:id/proposal"><RemixPage proposal /></Route>
+          <Route path="/remix/:id"><RemixPage /></Route>
+          <Route path="/collaborations/:id" component={CollaborationPage} />
+          <Route path="/studio" component={Publications} />
+          <Route path="/publish" component={PublicationEditor} />
+          <Route path="/publish/:id" component={PublicationEditor} />
           <Route path="/search" component={Search} />
           <Route path="/artist/:id" component={ArtistProfile} />
           <Route path="/project/:id" component={ProjectDetail} />
-          <Route path="/pledges" component={Pledges} />
+          <Route path="/pledges"><Pledges /></Route>
+          <Route path="/received"><Pledges received /></Route>
           <Route path="/receipt/:id" component={Receipt} />
           <Route path="/profile" component={Profile} />
           <Route path="/login" component={Login} />

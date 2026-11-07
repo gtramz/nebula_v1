@@ -1,6 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Link, useLocation } from "wouter";
-import { useRegisterAccount } from "@nebula/local";
+import { useRegisterAccount, isServerMode } from "@nebula/local";
 import { Check, Eye, EyeOff, Loader2, ShieldCheck } from "lucide-react";
 import { AntiqLogo } from "@/components/antiq-logo";
 import { MorphAdvanceButton } from "@/components/blob-face";
@@ -24,13 +24,12 @@ export default function Register() {
 
   const passwordChecks = useMemo(() => [
     { label: "8 or more characters", valid: password.length >= 8 },
-    { label: "at least one number", valid: /\d/.test(password) },
-    { label: "at least one letter", valid: /[a-zA-Z]/.test(password) },
+    { label: "128 characters or fewer", valid: password.length > 0 && password.length <= 128 },
   ], [password]);
 
   const isNameValid = name.trim().length >= 2;
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
-  const isPasswordValid = password.length >= 8;
+  const isPasswordValid = password.length >= 8 && password.length <= 128;
   const isConfirmationValid = password === confirmPassword && confirmPassword.length > 0;
 
   const handleRegister = (e: FormEvent) => {
@@ -338,7 +337,7 @@ export default function Register() {
           {step === 3 && (
             <div className="flex items-start gap-3 border-t border-white/10 pt-5 text-xs text-muted">
               <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#18d9ff]" />
-              <p>this profile is only for the preview in this tab. no real account is created.</p>
+              <p>{isServerMode() ? 'your account is saved on this server. sign in with the same email and password from any browser that can reach it.' : 'your account is saved in this browser for this local preview. use the same browser and address to log in again.'}</p>
             </div>
           )}
 

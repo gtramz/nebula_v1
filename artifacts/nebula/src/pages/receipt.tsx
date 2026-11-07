@@ -46,8 +46,9 @@ export default function Receipt() {
             </div>
           </div>
 
-          <Link href={`/project/${receipt.projectId}`} className="relative z-10 w-full py-4 bg-cream text-bg rounded-full font-bold tracking-wide voice text-xs flex items-center justify-center gap-2 hover:bg-white transition cursor-pointer">
-            RETURN TO PROJECT <ArrowRight className="w-4 h-4" />
+          {receipt.projectArchived && <p className="text-sm text-muted">This project has been removed. Your pledge and receipt are preserved.</p>}
+          <Link href={receipt.projectArchived ? '/pledges' : `/project/${receipt.projectId}`} className="relative z-10 w-full py-4 bg-cream text-bg rounded-full font-bold tracking-wide voice text-xs flex items-center justify-center gap-2 hover:bg-white transition cursor-pointer">
+            {receipt.projectArchived ? 'VIEW MY PLEDGES' : 'RETURN TO PROJECT'} <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
       </ContentWidth>

@@ -1,11 +1,13 @@
+import { ProjectOffers } from '@/features/collaborations';
 import { useState } from "react";
 import { useParams, Link, useLocation } from "wouter";
-import { useGetProject, getGetProjectQueryKey, useCreateInvestment, useToggleProjectSupport } from "@nebula/local";
+import { useGetProject, getGetProjectQueryKey, useCreateInvestment, useToggleProjectSupport, type PublicVisibility } from "@nebula/local";
 import { useQueryClient } from "@tanstack/react-query";
 import { ContentWidth } from "@/components/shell/app-shell";
 import { formatMoney } from "@/lib/utils";
 import { ArrowLeft, Loader2, Heart, ArrowRight } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
+import { PublicVisibilityFields } from "@/components/public-visibility";
 import * as Dialog from "@radix-ui/react-dialog";
 
 export default function ProjectDetail() {
@@ -22,6 +24,8 @@ export default function ProjectDetail() {
   const createInvestment = useCreateInvestment();
   const toggleSupport = useToggleProjectSupport();
 
+  const [visibilityDraft, setVisibilityDraft] = useState<PublicVisibility | null>(null);
+  const [backerLimit, setBackerLimit] = useState(10);
   const [fundAmount, setFundAmount] = useState<number>(500);
   const [isFundModalOpen, setIsFundModalOpen] = useState(false);
 
@@ -31,11 +35,12 @@ export default function ProjectDetail() {
   const { project, artist, backers, supporters, viewerHasSupported } = detail;
   const percent = Math.min(100, Math.round((project.raisedAmount / project.goalAmount) * 100));
 
+  const visibility = visibilityDraft ?? detail.viewerVisibility ?? { showName: false, showAmount: false };
   const isArtist = user?.role === 'artist';
 
   const handleFund = (e: React.FormEvent) => {
     e.preventDefault();
-    createInvestment.mutate({ data: { projectId, amount: fundAmount } }, {
+    createInvestment.mutate({ data: { projectId, amount: fundAmount, publicVisibility: visibility } }, {
       onSuccess: (investment) => {
         setIsFundModalOpen(false);
         setLocation(`/receipt/${investment.id}`);
@@ -105,8 +110,10 @@ export default function ProjectDetail() {
               </section>
             )}
 
+            <ProjectOffers projectId={project.id} ownerId={project.artistId} />
+
             {(backers.length > 0 || supporters.length > 0) && (
-              <section className="space-y-6 pt-8 border-t border-white/10">
+              <section aria-label="Project community" className="space-y-6 pt-8 border-t border-white/10">
                 <h2 className="voice text-[10px] text-muted">COMMUNITY</h2>
                 <div className="flex flex-wrap gap-4">
                   {supporters.map((s, i) => (
@@ -117,14 +124,16 @@ export default function ProjectDetail() {
                     </Link>
                   ))}
                 </div>
+                <p className="text-xs text-muted">One entry per supporter. Repeat contributions are combined; names and amounts follow each supporter’s preferences.</p>
                 <div className="space-y-3">
-                  {backers.map((b, i) => (
-                    <div key={i} className="flex justify-between items-center py-3 border-b border-white/5 last:border-0">
-                      <span className="text-ink font-medium">{b.name}</span>
-                      <span className="text-cream font-bold">{formatMoney(b.amount)}</span>
+                  {backers.slice(0, backerLimit).map((b) => (
+                    <div key={b.publicId} className="flex justify-between items-center gap-4 py-3 border-b border-white/5 last:border-0">
+                      <span className="text-ink font-medium">{b.name ?? "Anonymous supporter"}</span>
+                      <span className="text-cream font-bold">{b.amount === null ? "Amount private" : formatMoney(b.amount)}</span>
                     </div>
                   ))}
                 </div>
+                {backers.length > backerLimit && <button onClick={() => setBackerLimit(backerLimit + 10)} className="text-sm underline text-muted">Show more supporters</button>}
               </section>
             )}
           </div>
@@ -152,7 +161,7 @@ export default function ProjectDetail() {
                     {viewerHasSupported ? 'SUPPORTED' : 'SUPPORT SYMBOLICALLY'}
                   </button>
                 ) : (
-                  <Dialog.Root open={isFundModalOpen} onOpenChange={setIsFundModalOpen}>
+                  <Dialog.Root open={isFundModalOpen} onOpenChange={(open) => { setIsFundModalOpen(open); setVisibilityDraft(null); }}>
                     <Dialog.Trigger asChild>
                       <button className="w-full py-4 bg-cream text-bg rounded-full font-bold tracking-wide voice text-xs hover:bg-white transition shadow-lg cursor-pointer">
                         BACK THIS PROJECT
@@ -161,7 +170,7 @@ export default function ProjectDetail() {
 
                     <Dialog.Portal>
                          <Dialog.Overlay className="fixed inset-0 bg-bg/90 z-50 animate-fade-in" />
-                       <Dialog.Content className="fixed bottom-0 left-0 right-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 w-full lg:max-w-md bg-surface border border-border p-6 z-50 animate-sheet-up lg:animate-expand-in">
+                       <Dialog.Content className="fixed bottom-0 left-0 right-0 lg:bottom-auto lg:top-1/2 lg:left-1/2 lg:-translate-x-1/2 lg:-translate-y-1/2 w-full lg:max-w-md bg-surface border border-border p-6 z-50 max-h-[90dvh] overflow-y-auto animate-sheet-up lg:animate-expand-in">
                         <Dialog.Title className="text-2xl font-display font-bold text-ink mb-3 text-center text-veil">Select Amount</Dialog.Title>
                         <Dialog.Description className="mb-6 text-center text-sm text-muted">Preview a contribution. No money moves.</Dialog.Description>
 
@@ -193,12 +202,17 @@ export default function ProjectDetail() {
                                 id="pledge-amount"
                                 type="number"
                                 min="100"
+                                max="10000000"
+                                step="0.01"
+                                required
                                 value={fundAmount}
                                 onChange={(e) => setFundAmount(Number(e.target.value))}
                                 className="w-full bg-surfaceAlt border border-white/5 rounded-2xl px-6 py-4 text-ink font-display text-xl focus:outline-none focus:border-accent transition"
                               />
                             </div>
 
+                            <PublicVisibilityFields value={visibility} onChange={setVisibilityDraft} disabled={createInvestment.isPending} />
+                            <Dialog.Close className="text-sm underline text-muted">Cancel</Dialog.Close>
                             <button
                               type="submit"
                               disabled={createInvestment.isPending}
