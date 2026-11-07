@@ -512,3 +512,10 @@ abort signals, late responses, clearing, failure/retry, empty results, alignment
 keyboard focus and touch targets in desktop Chrome and emulated mobile Chrome.
 Existing shared social tests verify real artist/project search, navigation and
 network recovery. These checks do not constitute physical iOS/Safari testing.
+
+## Collaboration interface (handoff UX-01)
+
+See [the collaboration interface handoff](../docs/collaboration-interface-handoff.md)
+for the shared shape/control policy, role/state guidance, per-tab working-copy
+recovery, revision review and verification boundaries. The collaboration APIs,
+permissions and stored terms/submission history are unchanged.

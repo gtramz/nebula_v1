@@ -104,7 +104,7 @@ test('both sides can use direct applications, withdrawal, decline and closure wi
     await artist.getByRole('article', { name: 'Mix offer' }).getByRole('button', { name: 'Submit proposal', exact: true }).click();
     await expect(artist.getByRole('form', { name: 'Proposal form' })).toBeVisible();
     const first = new URL(artist.url()).pathname;
-    await artist.getByRole('button', { name: 'Withdraw proposal', exact: true }).click();
+    artist.once('dialog', dialog => dialog.accept()); await artist.getByRole('button', { name: 'Withdraw proposal', exact: true }).click();
     await expect(artist.locator('header').getByText('withdrawn', { exact: true })).toBeVisible();
     await expect(artist.getByRole('form', { name: 'Proposal form' })).toHaveCount(0);
     await page.goto(first); await expect(page.getByText('This collaboration is withdrawn.', { exact: true })).toBeVisible();
@@ -113,7 +113,7 @@ test('both sides can use direct applications, withdrawal, decline and closure wi
     await expect(artist).toHaveURL(/\/collaborations\/\d+$/);
     const second = new URL(artist.url()).pathname;
     await work(artist);
-    await page.goto(second); await page.getByRole('button', { name: 'Decline proposal', exact: true }).click();
+    await page.goto(second); page.once('dialog', dialog => dialog.accept()); await page.getByRole('button', { name: 'Decline proposal', exact: true }).click();
     await artist.bringToFront(); await live(artist.locator('header').getByText('rejected', { exact: true })).toBeVisible();
     await expect(artist.getByRole('button', { name: 'Accept proposal', exact: true })).toHaveCount(0);
     await expect(artist.getByRole('button', { name: 'Send delivery', exact: true })).toHaveCount(0);
