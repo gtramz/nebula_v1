@@ -1,3 +1,4 @@
+import { useViewState } from '@/components/shell/return-context';
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { useCatalogSearch } from "@nebula/local";
@@ -6,7 +7,7 @@ import { Search as SearchIcon, X } from "lucide-react";
 import { ProjectCard } from "@/components/project-card";
 
 export default function Search() {
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useViewState('search-query', "");
   const inputRef = useRef<HTMLInputElement>(null);
   const [composing, setComposing] = useState(false);
   const [settledQuery, setSettledQuery] = useState("");
@@ -25,7 +26,7 @@ export default function Search() {
   const resultCount = (artists?.length ?? 0) + (projects?.length ?? 0);
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div data-page-scroll className="flex-1 overflow-y-auto">
       <ContentWidth className="py-8 px-4 lg:px-0 space-y-8">
         <div className="border-b border-white/[0.15] pb-6">
           <label htmlFor="site-search" className="sr-only">search artists and projects</label>

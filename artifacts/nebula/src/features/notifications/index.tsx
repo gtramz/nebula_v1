@@ -1,3 +1,4 @@
+import { ReturnLink } from '@/components/antiq/workspace';
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Bell, X } from 'lucide-react';
@@ -120,7 +121,7 @@ function NotificationList({ artistId, panel = false }: { artistId: number; panel
     finally { if (!abort.signal.aborted) { request.current = null; setPending(false); setReading(false); } }
   }
   return <section className={panel ? "space-y-6" : "mx-auto w-full max-w-3xl p-6 pb-24 space-y-6"}>
-    {!panel && <Link href="/collaborations" onClick={close} className="inline-flex min-h-11 items-center underline text-sm">Your collaborations</Link>}
+    {!panel && <ReturnLink href="/collaborations" onClick={close}>Your collaborations</ReturnLink>}
     <div className="flex flex-wrap items-center justify-between gap-3">{panel ? <Link href="/collaborations" onClick={close} className="inline-flex min-h-11 items-center underline text-sm">Your collaborations</Link> : <div><p className="voice text-xs text-accent">STAY IN THE LOOP</p><h1 className="text-3xl font-bold">Notifications</h1></div>}
       <button className={button} disabled={pending || !first?.unreadCount || !!query.error} onClick={() => first?.latestId && void markRead({ throughId: first.latestId })}>Mark all as read</button></div>
     {!panel && <p className="text-sm text-muted">Updates from your collaborations. Reading a notification is private; it does not send a read receipt.</p>}

@@ -1,3 +1,4 @@
+import { ReturnLink, ReturnButton } from '@/components/antiq/workspace';
 import { useMemo, useState, type FormEvent } from "react";
 import { Link, useLocation } from "wouter";
 import { useRegisterAccount, isServerMode } from "@nebula/local";
@@ -77,17 +78,7 @@ export default function Register() {
   if (role === "none") {
     return (
       <div className="flex flex-1 flex-col p-6 items-center justify-center relative">
-        <Link
-          href="/"
-          aria-label="back home"
-          className="absolute left-16 top-6 z-50"
-        >
-          <AntiqLogo
-            className="h-9 w-6"
-            imageScaleClass="h-[272%] w-auto"
-            backArrow
-          />
-        </Link>
+        <ReturnLink href="/" className="absolute left-6 top-6 z-50">Back home</ReturnLink><AntiqLogo className="!absolute right-6 top-6 h-9 w-6" imageScaleClass="h-[272%] w-auto" />
         <div className="flex w-full max-w-md flex-col gap-10 lg:max-w-3xl lg:gap-14">
           <div className="space-y-2 text-center lg:space-y-4">
              <h1 className="text-4xl font-display font-bold text-ink text-veil lg:text-6xl">join nebula</h1>
@@ -126,12 +117,7 @@ export default function Register() {
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center p-6 relative">
-      <AntiqLogo
-        className="!absolute left-16 top-6 z-50 h-9 w-6"
-        imageScaleClass="h-[272%] w-auto"
-        backArrow
-        onClick={handleBack}
-      />
+      <ReturnButton className="absolute left-6 top-6 z-50" disabled={advancing} onClick={handleBack}>{step === 1 ? 'Choose account type' : 'Previous step'}</ReturnButton><AntiqLogo className="!absolute right-6 top-6 h-9 w-6" imageScaleClass="h-[272%] w-auto" />
 
       <div className="flex w-full max-w-md flex-col gap-8">
         <div className="space-y-5">

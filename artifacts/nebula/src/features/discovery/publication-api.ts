@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest, isServerMode, type Publication, type PublicationInput, type UploadedMedia } from '@nebula/local';
 import { useAuth } from '@/context/AuthContext';
 
@@ -48,7 +48,9 @@ export function uploadMedia(file: File, kind: UploadedMedia['kind'], progress: (
 export function useDiscoveryFeed() {
   const { user } = useAuth();
   const identity = user ? `${user.role}:${user.artistId ?? user.investorId}` : 'guest';
-  const snapshot = useRef<{ identity: string; token?: string }>({ identity });
+  const client = useQueryClient();
+  const cached = client.getQueryData<{ pages: { snapshot: string }[] }>(['discovery-feed', identity]);
+  const snapshot = useRef<{ identity: string; token?: string }>({ identity, token: cached?.pages[0]?.snapshot });
   if (snapshot.current.identity !== identity) snapshot.current = { identity };
   return useInfiniteQuery({ queryKey: ['discovery-feed', identity], initialPageParam: 0,
     queryFn: async ({ pageParam }) => {
@@ -57,6 +59,6 @@ export function useDiscoveryFeed() {
       return result;
     },
     getNextPageParam: page => page.nextCursor ?? undefined,
-    refetchInterval: 15_000, refetchOnWindowFocus: true, gcTime: 0,
+    refetchInterval: 15_000, refetchOnWindowFocus: true, gcTime: 5 * 60_000,
   });
 }

@@ -19,7 +19,7 @@ async function visibleGeometry(page: Page) {
   const article = active(page), media = (await article.locator('.discovery-media').boundingBox())!, rail = (await article.locator('.discovery-actions').boundingBox())!;
   expect(rail.x).toBeGreaterThanOrEqual(media.x + media.width);
   const buttons = article.locator('.discovery-actions button');
-  for (let i=0; i<5; i++) { const box=(await buttons.nth(i).boundingBox())!; expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44); if (i) expect(box.y).toBeGreaterThan((await buttons.nth(i-1).boundingBox())!.y); }
+  for (let i=0; i<5; i++) { const box=(await buttons.nth(i).boundingBox())!; expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44); if (i) expect(box.y).toBeGreaterThanOrEqual((await buttons.nth(i-1).boundingBox())!.y); }
   const bottom = page.viewportSize()!.height - (page.viewportSize()!.width < 768 ? 64 : 0);
   expect(rail.y).toBeGreaterThanOrEqual(0); expect(rail.y+rail.height).toBeLessThanOrEqual(bottom);
   expect(await article.evaluate(e=>e.scrollHeight<=e.clientHeight+1)).toBe(true);

@@ -1,9 +1,10 @@
+import { ReturnLink } from '@/components/antiq/workspace';
 import { useParams, Link } from "wouter";
 import { useGetArtist, getGetArtistQueryKey } from "@nebula/local";
 import { ContentWidth } from "@/components/shell/app-shell";
 import { ProjectCard } from "@/components/project-card";
 import { formatMoney } from "@/lib/utils";
-import { ArrowLeft, MapPin, Music } from "lucide-react";
+import { MapPin, Music } from "lucide-react";
 
 export default function ArtistProfile() {
   const { id } = useParams<{ id: string }>();
@@ -16,13 +17,13 @@ export default function ArtistProfile() {
   }
 
   if (!artistDetail) {
-    return <div className="flex-1 p-8 text-center text-muted voice">ARTIST NOT FOUND</div>;
+    return <div className="flex-1 p-8 text-center text-muted voice">ARTIST NOT FOUND<ReturnLink contextual href="/explore" className="mx-auto mt-4" /></div>;
   }
 
   const { artist, projects, totalRaised, backersCount } = artistDetail;
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div data-page-scroll className="flex-1 overflow-y-auto">
       <div className="relative h-64 lg:h-80 w-full bg-surfaceAlt overflow-hidden">
         {artist.picture ? (
           <img src={artist.picture} alt={artist.name} className="object-cover w-full h-full opacity-60 mix-blend-luminosity" />
@@ -31,9 +32,7 @@ export default function ArtistProfile() {
         )}
         <div className="absolute inset-0 bg-black/70" />
 
-        <Link href="/explore" className="absolute top-6 left-6 text-cream hover:text-white glass-band p-2 rounded-full">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
+        <ReturnLink contextual href="/explore" className="absolute top-6 left-6 z-20 text-cream" />
       </div>
 
       <ContentWidth className="-mt-20 relative z-10 space-y-12 pb-24">

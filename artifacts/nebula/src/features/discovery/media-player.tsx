@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiRequest, type Waveform } from '@nebula/local';
 import { Disc3, Pause, Play, Volume2, VolumeX } from 'lucide-react';
@@ -14,7 +14,7 @@ export function AudioDiscoveryCard({ post }: { post: DemoPost }) {
   const [failed, setFailed] = useState(false);
   return <div className="discovery-audio-stage">
     <div className="discovery-cover">
-      {post.coverUrl && !failed ? <img src={post.coverUrl} alt={`${post.title} cover artwork`} onError={() => setFailed(true)} />
+      {post.coverUrl && !failed ? <img src={post.coverUrl} loading="lazy" decoding="async" alt={`${post.title} cover artwork`} onError={() => setFailed(true)} />
         : <div className="discovery-cover-fallback" aria-label="No cover artwork"><Disc3 strokeWidth={.6} /><span>{post.initials}</span><small>NEBULA / AUDIO</small></div>}
     </div>
   </div>;
@@ -41,7 +41,7 @@ function WaveformProgress({ data, progress }: { data: Waveform; progress: number
   </svg>;
 }
 
-export function DiscoveryMedia({ post, active, blocked, waveformAccess }: { post: DemoPost; active: boolean; blocked: boolean; waveformAccess: boolean }) {
+export const DiscoveryMedia = memo(function DiscoveryMedia({ post, active, nearby, blocked, waveformAccess }: { post: DemoPost; active: boolean; nearby: boolean; blocked: boolean; waveformAccess: boolean }) {
   const notificationsOpen = useNotificationsOpen();
   blocked = blocked || notificationsOpen;
   const media = useRef<HTMLMediaElement | null>(null), wasActive = useRef(false);
@@ -51,8 +51,8 @@ export function DiscoveryMedia({ post, active, blocked, waveformAccess }: { post
   const [failed, setFailed] = useState(false), [buffering, setBuffering] = useState(false), [notice, setNotice] = useState('');
   const audio = post.media.kind === 'audio';
   const waveform = useQuery({ queryKey: ['discovery-waveform', post.id, post.media.src],
-    queryFn: () => apiRequest<Waveform>(`/api/publications/${post.id.slice(5)}/waveform`),
-    enabled: active && audio && waveformAccess, retry: false, refetchOnWindowFocus: false, gcTime: 0 });
+    queryFn: ({ signal }) => apiRequest<Waveform>(`/api/publications/${post.id.slice(5)}/waveform`, { signal }),
+    enabled: active && audio && waveformAccess, retry: false, refetchOnWindowFocus: false, staleTime: 60_000, gcTime: 60_000 });
   const wave = waveformAccess ? waveform.data : undefined;
   useEffect(() => {
     allowed.current = active && !blocked;
@@ -63,13 +63,14 @@ export function DiscoveryMedia({ post, active, blocked, waveformAccess }: { post
       void element.play().then(() => { if (!allowed.current || document.hidden) element.pause(); }).catch(() => { if (allowed.current) setNotice('Press play to watch.'); });
     }
     wasActive.current = active;
-  }, [active, blocked, audio]);
+  }, [active, blocked, audio, nearby]);
   useEffect(() => {
     const element = media.current;
+    if (!nearby || !element) return;
     const pause = () => { if (document.hidden) element?.pause(); };
     document.addEventListener('visibilitychange', pause);
-    return () => { allowed.current = false; element?.pause(); document.removeEventListener('visibilitychange', pause); };
-  }, []);
+    return () => { element.pause(); element.removeAttribute('src'); element.load(); document.removeEventListener('visibilitychange', pause); };
+  }, [nearby]);
   async function toggle() {
     const element = media.current; if (!element || !allowed.current) return;
     if (!element.paused) { element.pause(); return; }
@@ -82,13 +83,14 @@ export function DiscoveryMedia({ post, active, blocked, waveformAccess }: { post
     onPlay: () => { if (!allowed.current || document.hidden) media.current?.pause(); else setPlaying(true); },
     onPause: () => { setPlaying(false); setBuffering(false); }, onPlaying: () => { setBuffering(false); setNotice(''); },
     onWaiting: () => setBuffering(true), onCanPlay: () => setBuffering(false),
+    onLoadedMetadata: () => { const element = media.current; if (element) { element.volume = volume; if (Number.isFinite(element.duration)) element.currentTime = Math.min(progress, element.duration); } },
     onTimeUpdate: () => setProgress(media.current?.currentTime ?? 0),
     onDurationChange: () => { const value = media.current?.duration ?? 0; if (Number.isFinite(value) && value > 0) setDuration(value); },
     onError: () => { setFailed(true); setPlaying(false); setBuffering(false); },
   };
   return <div className={`discovery-media ${audio ? 'is-audio' : 'is-video'}`}>
-    {audio ? <><AudioDiscoveryCard post={post} /><audio {...mediaProps} ref={element => { media.current = element; }} aria-label={`${post.title} audio`} /></>
-      : <VideoDiscoveryPlayer><video {...mediaProps} ref={element => { media.current = element; }} poster={post.coverUrl ?? undefined} playsInline className="discovery-video" aria-label={`${post.title} video`} /></VideoDiscoveryPlayer>}
+    {audio ? <><AudioDiscoveryCard post={post} />{nearby && <audio {...mediaProps} ref={element => { media.current = element; }} aria-label={`${post.title} audio`} />}</>
+      : <VideoDiscoveryPlayer>{nearby ? <video {...mediaProps} ref={element => { media.current = element; }} poster={post.coverUrl ?? undefined} playsInline className="discovery-video" aria-label={`${post.title} video`} /> : post.coverUrl ? <img src={post.coverUrl} alt="" loading="lazy" className="discovery-video" /> : <Disc3 aria-hidden="true" size={48} />}</VideoDiscoveryPlayer>}
     <div className="discovery-media-controls">
       <div className={`discovery-seek ${wave ? 'has-waveform' : ''}`}>
         {wave && <WaveformProgress data={wave} progress={duration ? Math.min(1, progress / duration) : 0} />}
@@ -100,7 +102,7 @@ export function DiscoveryMedia({ post, active, blocked, waveformAccess }: { post
       </div>
     </div>
   </div>;
-}
+});
 
 export function MediaPlaybackControls({ title, playing, muted, volume, progress, duration, disabled, onToggle, onMute, onVolume }: {
   title: string; playing: boolean; muted: boolean; volume: number; progress: number; duration: number; disabled: boolean;

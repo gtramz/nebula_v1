@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useLeaveGuard } from '@/components/shell/navigation-guard';
+import { useRef, useState } from "react";
 import { ImageUpload } from "@/components/image-upload";
 import { useAuth } from "@/context/AuthContext";
 import {
@@ -50,7 +51,7 @@ export default function Profile() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div data-page-scroll className="flex-1 overflow-y-auto">
       <ContentWidth className="py-12 space-y-12 px-4 lg:px-0">
         <div className="flex items-center justify-between">
           <h1 className="text-4xl font-display font-bold text-ink text-veil">
@@ -348,6 +349,8 @@ function ProjectEditor({
   };
 
   const isPending = createProject.isPending || updateProject.isPending;
+  const initial = useRef(JSON.stringify(formData));
+  useLeaveGuard(isPending || initial.current !== JSON.stringify(formData) ? 'Leave without saving your project changes?' : null);
 
   return (
     <div className="glass-band rounded-[32px] p-6 lg:p-10 space-y-8 animate-fade-in relative border-accent/10 shadow-2xl">
@@ -515,6 +518,8 @@ function ArtistEditor({ onClose }: { onClose: () => void }) {
     recordLabel: user?.artist?.recordLabel ?? '',
     picture: user?.artist?.picture ?? null,
   });
+  const initial = useRef(JSON.stringify(profile));
+  useLeaveGuard(updateArtist.isPending || initial.current !== JSON.stringify(profile) ? 'Leave without saving your profile changes?' : null);
   const fieldClass = 'w-full bg-surfaceAlt border border-border px-5 py-4 text-ink outline-none focus:border-accent';
 
   return (

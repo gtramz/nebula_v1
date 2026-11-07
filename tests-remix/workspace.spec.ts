@@ -48,3 +48,19 @@ test('session expiry clears workspace and account switching cannot recover anoth
  await account(page,tag+'-second');await page.reload();await expect(page.getByText('No private drafts yet. Choose an original in Discovery to start.',{exact:true})).toBeVisible();
  expect((await page.request.get(`/api/remix-drafts/${draft.id}`)).status()).toBe(404);await expect(page.getByText('Private identity work',{exact:true})).toHaveCount(0);
 });
+
+test('parent return and browser Back protect an unsaved remix, then return to its original', async ({page}, info) => {
+ const post=await setup(page,`return-${info.project.name}-${Date.now()}`); await enter(page,post.id);
+ await page.getByLabel('Remix title',{exact:true}).fill('Keep this remix');
+ await page.getByLabel('Upload file',{exact:true}).setInputFiles('artifacts/nebula/public/discovery-demo/orbit.wav');
+ await expect(page.getByText(/Your contribution is ready/)).toBeVisible();
+ const reject = (dialog: import('@playwright/test').Dialog) => dialog.dismiss(); page.on('dialog',reject);
+ await page.getByRole('link',{name:'Back to Discovery',exact:true}).click();
+ await expect(page).toHaveURL(/\/studio\/remix$/);
+ const warned=page.waitForEvent('dialog'); await page.evaluate(()=>history.back()); await warned;
+ await expect(page).toHaveURL(/\/studio\/remix$/); await expect(page.getByLabel('Remix title',{exact:true})).toHaveValue('Keep this remix');
+ await expect(page.getByText(/Your contribution is ready/)).toBeVisible();
+ page.off('dialog',reject); await save(page);
+ await page.getByRole('link',{name:'Back to Discovery',exact:true}).click();
+ await expect(page.locator('article[data-active=true]')).toContainText('Workspace original');
+});

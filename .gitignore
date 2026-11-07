@@ -22,3 +22,6 @@ test-results-remix/
 
 test-results-browser/
 test-results-discovery*/
+
+test-results-performance/
+test-results-return/

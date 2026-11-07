@@ -68,8 +68,8 @@ test('keeps a USD receipt and cents after its artist removes the project', async
   await page.goto(receiptUrl);
   await expect(page.getByText('USD 200.75', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('This project has been removed. Your pledge and receipt are preserved.')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'RETURN TO PROJECT' })).toHaveCount(0);
-  await page.getByRole('link', { name: 'VIEW MY PLEDGES' }).click();
+  await expect(page.getByRole('link', { name: 'Back to project' })).toHaveCount(0);
+  await page.getByRole('link', { name: 'Back to pledges' }).click();
   await expect(page.getByRole('heading', { name: 'USD Release', exact: true })).toBeVisible();
   await expect(page.getByText('USD 200.75', { exact: true }).first()).toBeVisible();
   await page.reload();

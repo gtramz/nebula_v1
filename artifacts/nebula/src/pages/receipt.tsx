@@ -1,8 +1,9 @@
-import { useParams, Link } from "wouter";
+import { ReturnLink } from '@/components/antiq/workspace';
+import { useParams } from "wouter";
 import { useGetInvestment, getGetInvestmentQueryKey } from "@nebula/local";
 import { ContentWidth } from "@/components/shell/app-shell";
 import { formatMoney } from "@/lib/utils";
-import { CheckCircle2, ArrowRight } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 
 export default function Receipt() {
   const { id } = useParams<{ id: string }>();
@@ -47,9 +48,9 @@ export default function Receipt() {
           </div>
 
           {receipt.projectArchived && <p className="text-sm text-muted">This project has been removed. Your pledge and receipt are preserved.</p>}
-          <Link href={receipt.projectArchived ? '/pledges' : `/project/${receipt.projectId}`} className="relative z-10 w-full py-4 bg-cream text-bg rounded-full font-bold tracking-wide voice text-xs flex items-center justify-center gap-2 hover:bg-white transition cursor-pointer">
-            {receipt.projectArchived ? 'VIEW MY PLEDGES' : 'RETURN TO PROJECT'} <ArrowRight className="w-4 h-4" />
-          </Link>
+          <ReturnLink href={receipt.projectArchived ? '/pledges' : `/project/${receipt.projectId}`} className="relative z-10">
+            {receipt.projectArchived ? 'Back to pledges' : 'Back to project'}
+          </ReturnLink>
         </div>
       </ContentWidth>
     </div>

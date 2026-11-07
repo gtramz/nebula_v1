@@ -1,3 +1,4 @@
+import { ReturnLink } from '@/components/antiq/workspace';
 import { useState } from 'react';
 import { Link } from 'wouter';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
@@ -46,7 +47,7 @@ export function SavedPublications() {
   if (!user) return <div className="p-8"><p>Log in to see your private collection.</p><Link href="/login">log in</Link></div>;
   if (!isServerMode()) return <div className="p-8">Saved collections require the local server.</div>;
   const items = query.data?.pages.flatMap(page => page.items) ?? [];
-  return <section className="max-w-3xl mx-auto p-6 space-y-6"><Link href="/profile" className="underline">Back to profile</Link><h1 className="text-3xl font-bold">Saved publications</h1><p className="text-muted">Only you can see this collection. Withdrawn publications are hidden until their author publishes them again.</p>
+  return <section className="max-w-3xl mx-auto p-6 space-y-6"><ReturnLink href="/profile">Back to profile</ReturnLink><h1 className="text-3xl font-bold">Saved publications</h1><p className="text-muted">Only you can see this collection. Withdrawn publications are hidden until their author publishes them again.</p>
     {(error || query.error) && <p role="alert">{error || query.error?.message}</p>}{query.error && <button onClick={() => void query.refetch()}>Try again</button>}
     {query.isLoading ? <p role="status">Loading saved publications…</p> : !items.length && !query.error ? <p>No saved publications yet.</p> : items.map(post => <article key={post.id} className="border border-border p-5 space-y-3"><Link className="text-xl underline" href={`/discovery?post=post-${post.id}`}>{post.title}</Link><p>{post.artistName}</p><button className="text-sm underline" disabled={pending !== null} onClick={async () => {
       setPending(post.id); setError(''); try { await apiRequest(`/api/publications/${post.id}/save`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: false }) }); await refreshSocial(client); } catch (error) { setError((error as Error).message); } finally { setPending(null); }

@@ -1,4 +1,4 @@
-import { Link } from "wouter";
+import { ReturnLink } from '@/components/antiq/workspace';
 import { ContentWidth } from "@/components/shell/app-shell";
 
 export default function NotFound() {
@@ -7,9 +7,7 @@ export default function NotFound() {
       <ContentWidth className="flex flex-col items-center">
         <h1 className="text-[120px] font-display font-bold text-ink/10 leading-none">404</h1>
         <p className="text-muted voice mt-4">Lost in the void</p>
-        <Link href="/explore" className="py-4 px-8 mt-10 glass-band text-cream rounded-full font-bold tracking-wide voice text-xs hover:border-white/20 transition-colors">
-          Return to Orbit
-        </Link>
+        <ReturnLink href="/explore" className="mt-10">Back to Explore</ReturnLink>
       </ContentWidth>
     </div>
   );

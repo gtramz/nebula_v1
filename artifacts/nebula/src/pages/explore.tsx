@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useViewState } from '@/components/shell/return-context';
 import { useListProjects } from "@nebula/local";
 import { ContentWidth } from "@/components/shell/app-shell";
 import { ProjectCard } from "@/components/project-card";
@@ -6,7 +6,7 @@ import { ProjectCard } from "@/components/project-card";
 const CATEGORIES = ["all", "album", "ep", "single", "tour", "video"];
 
 export default function Explore() {
-  const [category, setCategory] = useState("all");
+  const [category, setCategory] = useViewState('explore-category', "all");
 
   const { data: projects, isLoading: projectsLoading, error, refetch } = useListProjects(
     category === "all" ? {} : { category: category.toLowerCase() },
@@ -14,7 +14,7 @@ export default function Explore() {
   );
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div data-page-scroll className="flex-1 overflow-y-auto">
       <ContentWidth className="py-8 space-y-10">
         <div className="border-b border-white/[0.15] flex gap-2 overflow-x-auto pb-4 scrollbar-hide px-4 lg:px-0">
           {CATEGORIES.map((cat) => (

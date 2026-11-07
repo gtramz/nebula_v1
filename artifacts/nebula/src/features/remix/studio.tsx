@@ -1,3 +1,5 @@
+import { useLeaveGuard } from '@/components/shell/navigation-guard';
+import { ReturnLink, ReturnButton } from '@/components/antiq/workspace';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'wouter';
 import { useNotificationLock } from '@/features/notifications';
@@ -37,12 +39,7 @@ export function Studio({ original, draft, onDrafts }: { original: Publication; d
   }, [original.media.url, sourceKind]);
   useEffect(() => () => { if (own) URL.revokeObjectURL(own.url); }, [own]);
   useEffect(() => { if (!mix) return; const url = URL.createObjectURL(mix); setPreview(url); return () => URL.revokeObjectURL(url); }, [mix]);
-  useEffect(() => {
-    const unload = (event: BeforeUnloadEvent) => { if (dirty || busy || recording) { event.preventDefault(); event.returnValue = ''; } };
-    const click = (event: MouseEvent) => { if ((dirty || busy || recording) && (event.target as Element).closest?.('a[href]') && !event.metaKey && !event.ctrlKey && !window.confirm('Leave this unsaved remix? Save a private draft to keep your tracks and settings.')) { event.preventDefault(); event.stopPropagation(); } };
-    window.addEventListener('beforeunload', unload); document.addEventListener('click', click, true);
-    return () => { window.removeEventListener('beforeunload', unload); document.removeEventListener('click', click, true); };
-  }, [dirty, busy, recording]);
+  const allowDeparture = useLeaveGuard(dirty || busy || recording ? 'Leave this unsaved remix? Save a private draft to keep your tracks and settings.' : null);
   useEffect(() => {
     const hidden = () => { if (document.hidden && rec.current?.state === 'recording') rec.current.stop(); };
     document.addEventListener('visibilitychange', hidden); return () => document.removeEventListener('visibilitychange', hidden);
@@ -136,7 +133,7 @@ export function Studio({ original, draft, onDrafts }: { original: Publication; d
   }
   const baseProps = { onLoadedMetadata: () => { if (base.current) base.current.currentTime = settings.startSeconds; }, controls: false, preload: 'metadata', className: 'w-full max-h-72', src: original.media.url, onPlay: () => { player.current?.pause(); if (base.current && (base.current.currentTime < settings.startSeconds || base.current.currentTime >= settings.endSeconds)) base.current.currentTime = settings.startSeconds; }, onTimeUpdate: () => { if (base.current && base.current.currentTime >= settings.endSeconds) base.current.pause(); } };
   return <section className="mx-auto w-full max-w-3xl p-6 pb-24 space-y-6">
-    <div className="flex flex-wrap gap-4"><Link className="underline text-sm" href={`/discovery?post=post-${original.id}`}>Back to Discovery</Link><button className="underline text-sm min-h-11" onClick={() => { if (!dirty || window.confirm('Leave your unsaved changes?')) onDrafts(); }}>Your private drafts</button></div>
+    <div className="flex flex-wrap gap-4"><ReturnLink href={`/discovery?post=post-${original.id}`}>Back to Discovery</ReturnLink><ReturnButton onClick={() => { if (!(dirty || busy || recording) || window.confirm('Leave your unsaved changes?')) { allowDeparture(); onDrafts(); } }}>Your private drafts</ReturnButton></div>
     <header><p className="voice text-xs text-accent">MAKE IT YOUR OWN</p><h1 className="text-3xl font-bold">Remix studio</h1></header>
     <div className="border border-border p-5 space-y-2"><p>Original: <strong>{original.title}</strong> · {original.artistName}</p></div>
     <fieldset disabled={busy || !!recording} className="space-y-6 disabled:opacity-60">

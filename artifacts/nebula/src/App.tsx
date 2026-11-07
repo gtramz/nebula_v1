@@ -9,6 +9,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { Route, Switch, useLocation, Router as WouterRouter } from 'wouter';
 
 import { AuthProvider } from '@/context/AuthContext';
+import { ReturnContext } from '@/components/shell/return-context';
 import { AppShell } from '@/components/shell/app-shell';
 
 import { SavedPublications } from '@/features/discovery/social';
@@ -35,7 +36,7 @@ const queryClient = new QueryClient({
 
 function Router() {
   return (
-    <NotificationsProvider><AppShell>
+    <ReturnContext><NotificationsProvider><AppShell>
       <RoutedErrorBoundary>
         <Switch>
           <Route path="/" component={Home} />
@@ -64,7 +65,7 @@ function Router() {
           <Route component={NotFound} />
         </Switch>
       </RoutedErrorBoundary>
-    </AppShell></NotificationsProvider>
+    </AppShell></NotificationsProvider></ReturnContext>
   );
 }
 

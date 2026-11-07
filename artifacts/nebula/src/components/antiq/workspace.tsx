@@ -1,6 +1,7 @@
 import type { ComponentProps, ReactNode } from 'react';
 import { Link } from 'wouter';
 import { ArrowLeft } from 'lucide-react';
+import { useReturnDestination, returnLabel } from '@/components/shell/return-context';
 import { cn } from '@/lib/utils';
 
 export const controlStyles = {
@@ -14,6 +15,11 @@ export function Panel({ className, ...props }: ComponentProps<'section'>) {
 export function StateBadge({ children }: { children: ReactNode }) {
   return <span className="inline-flex w-fit rounded-full border border-accent/30 bg-accent/5 px-3 py-1 text-xs font-medium text-accent">{children}</span>;
 }
-export function ReturnLink({ href, children, onClick }: { href: string; children: ReactNode; onClick?: () => void }) {
-  return <Link href={href} onClick={onClick} className="inline-flex min-h-11 items-center gap-2 text-sm text-muted transition-colors hover:text-ink active:text-accent"><ArrowLeft size={16} aria-hidden="true" />{children}</Link>;
+const returnStyle = 'inline-flex min-h-11 min-w-11 items-center gap-2 text-sm text-muted transition-colors hover:text-ink active:text-accent focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-4';
+export function ReturnButton({ children, className, ...props }: ComponentProps<'button'>) {
+  return <button type="button" {...props} className={cn(returnStyle, className)}><ArrowLeft size={16} aria-hidden="true" />{children}</button>;
+}
+export function ReturnLink({ href, children, onClick, contextual = false, className }: { href: string; children?: ReactNode; onClick?: () => void; contextual?: boolean; className?: string }) {
+  const parent = useReturnDestination(href), destination = contextual ? parent : href;
+  return <Link href={destination} state={{ __nebulaReturn: true }} onClick={onClick} className={cn(returnStyle, className)}><ArrowLeft size={16} aria-hidden="true" />{contextual ? returnLabel(destination) : children ?? returnLabel(href)}</Link>;
 }

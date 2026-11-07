@@ -1,3 +1,4 @@
+import { ReturnLink } from '@/components/antiq/workspace';
 import { useState, type FormEvent } from "react";
 import { Link, useLocation } from "wouter";
 import { useLogin, isServerMode, transferBrowserAccount, initializeLocalStore } from "@nebula/local";
@@ -21,9 +22,7 @@ export default function Login() {
 
   return (
     <div className="flex flex-1 flex-col p-6 items-center justify-center relative">
-      <Link href="/" aria-label="back home" className="absolute left-16 top-6 z-50">
-        <AntiqLogo className="h-9 w-6" imageScaleClass="h-[272%] w-auto" backArrow />
-      </Link>
+      <ReturnLink href="/" className="absolute left-6 top-6 z-50">Back home</ReturnLink>
       <div className="w-full max-w-sm flex flex-col gap-8">
         <h1 aria-label="Antiq Nebula" className="flex items-center justify-center gap-4 text-5xl sm:text-6xl font-display font-bold tracking-tighter text-ink">
           <span aria-hidden="true">

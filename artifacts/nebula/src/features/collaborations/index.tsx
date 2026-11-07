@@ -1,3 +1,4 @@
+import { useLeaveGuard } from '@/components/shell/navigation-guard';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useParams, useSearch } from 'wouter';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -175,16 +176,7 @@ function SubmissionForm({ item, onDone }: { item: CollaborationDetail; onDone: (
   const [error, setError] = useState(''), [pending, setPending] = useState(false), [uploading, setUploading] = useState(false), [progress, setProgress] = useState(0), [ready, setReady] = useState<Record<string, boolean>>({});
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
-  useEffect(() => {
-    if (!uploading && !pending) return;
-    const unload = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
-    const click = (event: MouseEvent) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || !(event.target as Element).closest?.('a[href]')) return;
-      if (!window.confirm('Work is still being sent. Stay to finish, or leave and check its status before trying again. Completed uploads and your text are kept in this tab.')) { event.preventDefault(); event.stopPropagation(); }
-    };
-    window.addEventListener('beforeunload', unload); document.addEventListener('click', click, true);
-    return () => { window.removeEventListener('beforeunload', unload); document.removeEventListener('click', click, true); };
-  }, [uploading, pending]);
+  useLeaveGuard(uploading || pending ? 'Work is still being sent. Stay to finish, or leave and check its status before trying again. Completed uploads and your text are kept in this tab.' : null);
   useEffect(() => { setAck(false); }, [item.currentOffer.revision]);
   return <form aria-label={delivery ? 'Delivery form' : 'Proposal form'} className="min-w-0 rounded-surface border border-border bg-surface p-5 sm:p-6 space-y-4" onSubmit={async e => { e.preventDefault(); if (!files.length || submitting.current || uploading) return; submitting.current = true; setPending(true); setError(''); try { await write(`/api/collaborations/${item.id}`, 'PATCH', { action: delivery ? 'deliver' : 'submit', revision: item.revision, offerRevision: item.currentOffer.revision, acceptTerms: ack, text: description, mediaId: files[0].id, mediaIds: files.map(file => file.id), publicationId, remixDraftId }); setFiles([]); setDescription(''); setPublicationId(null); setRemixDraftId(null); setInterrupted(false); await onDone(); } catch (error) { setError((error as Error).message); if ((error as { status?: number }).status === 409) { setAck(false); await onDone(); } } finally { submitting.current = false; setPending(false); } }}>
     <h2 className="text-xl font-semibold">{delivery ? 'Deliver your work' : 'Submit your proposal'}</h2><p className="text-xs text-muted">Unsent text and completed uploads stay in this tab until you send them or log out.</p>{interrupted && !uploading && <p role="status" className="text-sm text-muted">The last upload did not finish. Completed files are kept below; select any missing files again.</p>}

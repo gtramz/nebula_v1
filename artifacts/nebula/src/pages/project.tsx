@@ -1,3 +1,4 @@
+import { ReturnLink } from '@/components/antiq/workspace';
 import { ProjectOffers } from '@/features/collaborations';
 import { useState } from "react";
 import { useParams, Link, useLocation } from "wouter";
@@ -5,7 +6,7 @@ import { useGetProject, getGetProjectQueryKey, useCreateInvestment, useTogglePro
 import { useQueryClient } from "@tanstack/react-query";
 import { ContentWidth } from "@/components/shell/app-shell";
 import { formatMoney } from "@/lib/utils";
-import { ArrowLeft, Loader2, Heart, ArrowRight } from "lucide-react";
+import { Loader2, Heart, ArrowRight } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { PublicVisibilityFields } from "@/components/public-visibility";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -30,7 +31,7 @@ export default function ProjectDetail() {
   const [isFundModalOpen, setIsFundModalOpen] = useState(false);
 
   if (isLoading) return <div className="flex-1 p-8 text-center text-muted voice animate-pulse">LOADING PROJECT...</div>;
-  if (!detail) return <div className="flex-1 p-8 text-center text-muted voice">PROJECT NOT FOUND</div>;
+  if (!detail) return <div className="flex-1 p-8 text-center text-muted voice">PROJECT NOT FOUND<ReturnLink contextual href="/explore" className="mx-auto mt-4" /></div>;
 
   const { project, artist, backers, supporters, viewerHasSupported } = detail;
   const percent = Math.min(100, Math.round((project.raisedAmount / project.goalAmount) * 100));
@@ -58,7 +59,7 @@ export default function ProjectDetail() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto">
+    <div data-page-scroll className="flex-1 overflow-y-auto">
       <div className="relative h-72 lg:h-[400px] w-full bg-surfaceAlt overflow-hidden">
         {project.coverUrl ? (
           <img src={project.coverUrl} alt={project.title} className="object-cover w-full h-full opacity-50 mix-blend-luminosity" />
@@ -67,9 +68,7 @@ export default function ProjectDetail() {
         )}
         <div className="absolute inset-0 bg-black/60" />
 
-        <button onClick={() => history.back()} className="absolute top-6 left-6 text-cream hover:text-white glass-band p-2 rounded-full cursor-pointer z-20">
-          <ArrowLeft className="w-5 h-5" />
-        </button>
+        <ReturnLink contextual href="/explore" className="absolute top-6 left-6 z-20 text-cream" />
       </div>
 
       <ContentWidth className="-mt-32 relative z-10 space-y-12 pb-32">

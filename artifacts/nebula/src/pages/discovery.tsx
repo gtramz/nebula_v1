@@ -1,3 +1,4 @@
+import { useViewState } from '@/components/shell/return-context';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ProjectOffers } from '@/features/collaborations';
 import { apiRequest } from '@nebula/local';
@@ -65,10 +66,16 @@ export default function Discovery({ posts = DEMO_POSTS, live = false, onLoadMore
   const feed = useRef<HTMLDivElement>(null);
   const cards = useRef<(HTMLElement | null)[]>([]);
   const opener = useRef<HTMLElement | null>(null);
-  const [activeId, setActiveId] = useState(() => {
+  const [activeId, setActiveId] = useViewState<string | undefined>(`discovery-active:${live ? 'live' : 'demo'}`, () => {
     const id = new URLSearchParams(window.location.search).get('post');
     return posts.find(post => post.id === id)?.id ?? posts[0]?.id;
   });
+  const entryPost = useRef(new URLSearchParams(window.location.search).get('post'));
+  const initialized = useRef(false);
+  if (!initialized.current) {
+    initialized.current = true;
+    if (entryPost.current && posts.some(post => post.id === entryPost.current) && activeId !== entryPost.current) setActiveId(entryPost.current);
+  }
   const activeIndex = Math.max(0, posts.findIndex(post => post.id === activeId));
   const postOrder = posts.map(post => post.id).join(',');
   const activeIndexRef = useRef(activeIndex), resizing = useRef(false);
@@ -89,26 +96,33 @@ export default function Discovery({ posts = DEMO_POSTS, live = false, onLoadMore
     let frame = 0;
     const observer = new ResizeObserver(() => {
       resizing.current = true;
-      container.scrollTop = cards.current[activeIndexRef.current]?.offsetTop ?? 0;
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => { resizing.current = false; });
+      frame = requestAnimationFrame(() => {
+        container.scrollTop = activeIndexRef.current * container.clientHeight;
+        resizing.current = false;
+      });
     });
     observer.observe(container);
     return () => { observer.disconnect(); cancelAnimationFrame(frame); resizing.current = false; };
   }, []);
 
+  // One scroll listener, one read per frame. Native snap and resize share the same
+  // fixed-height geometry; no competing intersection callbacks select stale cards.
   useEffect(() => {
-    const container = feed.current;
-    if (!container) return;
-    const observer = new IntersectionObserver(entries => {
-      if (resizing.current) return;
-      for (const entry of entries) {
-        if (entry.isIntersecting && entry.intersectionRatio >= .6) setActiveId(posts[Number((entry.target as HTMLElement).dataset.index)].id);
-        else entry.target.querySelectorAll<HTMLMediaElement>('video, audio').forEach(media => media.pause());
+    const container = feed.current; if (!container) return;
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      if (resizing.current || !container.clientHeight) return;
+      const index = Math.max(0, Math.min(posts.length - 1, Math.round(container.scrollTop / container.clientHeight)));
+      if (index !== activeIndexRef.current && posts[index]) {
+        cards.current[activeIndexRef.current]?.querySelectorAll<HTMLMediaElement>('audio,video').forEach(media => media.pause());
+        activeIndexRef.current = index; setActiveId(posts[index].id);
       }
-    }, { root: container, threshold: [.6] });
-    cards.current.forEach(card => { if (card) observer.observe(card); });
-    return () => observer.disconnect();
+    };
+    const scroll = () => { if (!frame) frame = requestAnimationFrame(update); };
+    container.addEventListener('scroll', scroll, { passive: true });
+    return () => { container.removeEventListener('scroll', scroll); cancelAnimationFrame(frame); };
   }, [postOrder]);
 
   useEffect(() => { setActivity(initialActivity(posts)); setComment(''); }, [user?.artistId, user?.investorId, user?.role]);
@@ -137,9 +151,10 @@ export default function Discovery({ posts = DEMO_POSTS, live = false, onLoadMore
   function moveTo(index: number) {
     const container = feed.current, card = cards.current[index];
     if (!container || !card) return;
-    // Pause the old media immediately; the observer confirms the visible card.
-    container.querySelectorAll<HTMLMediaElement>('video, audio').forEach(media => media.pause());
-    container.scrollTo({ top: card.offsetTop, behavior: 'instant' });
+    // Pause the old media before moving; the scroll listener confirms alignment.
+    cards.current[activeIndexRef.current]?.querySelectorAll<HTMLMediaElement>('video, audio').forEach(media => media.pause());
+    activeIndexRef.current = index;
+    container.scrollTo({ top: index * container.clientHeight, behavior: 'instant' });
     setActiveId(posts[index].id);
   }
   function sharedLink(post: DemoPost) { return `${window.location.origin}${import.meta.env.BASE_URL}discovery?post=${encodeURIComponent(post.id)}${live ? '' : '&demo=1'}`; }
@@ -165,7 +180,7 @@ export default function Discovery({ posts = DEMO_POSTS, live = false, onLoadMore
           return <article ref={element => { cards.current[index] = element; }} key={post.id} data-index={index} data-active={index === activeIndex} aria-label={`${post.title} by ${post.author}`} className={`discovery-post discovery-tone-${post.tone}`} inert={index !== activeIndex}>
             <div className="discovery-post-top"><span>{post.media.kind === 'video' ? 'video' : 'audio'} / {post.genre}</span><span>{index + 1} / {posts.length}</span></div>
             <div className="discovery-post-body">
-              <DiscoveryMedia post={post} active={index === activeIndex} blocked={!!panel} waveformAccess={live && user?.role === 'artist' && post.remixAllowed && !post.original} />
+              <DiscoveryMedia post={post} active={index === activeIndex} nearby={Math.abs(index - activeIndex) <= 1} blocked={!!panel} waveformAccess={live && user?.role === 'artist' && post.remixAllowed && !post.original} />
               <DiscoveryPostInfo>
               <h2 title={post.title}>{post.title}</h2>
               <div className="discovery-author"><span className="discovery-avatar" aria-hidden="true">{post.initials}</span>{post.artistId ? <Link href={`/artist/${post.artistId}`}><strong>{post.author}</strong></Link> : <strong>{post.author}</strong>}<span>{live ? 'artist' : 'demo artist'}</span></div>

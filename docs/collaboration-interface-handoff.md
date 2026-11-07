@@ -3,8 +3,9 @@
 Scope: `/collaborations`, `/collaborations/:id` and their offer/proposal controls.
 The integrated local API remains the review backend. No endpoints, migrations,
 permissions, payment flows or dependencies are added. USD remains the only fee
-currency. The full application-wide UX-02 return-control audit and final handoff
-PDF remain separate workstreams.
+currency. The application-wide UX-02 return controls and Discovery performance follow-up
+are documented in [navigation-performance-handoff.md](navigation-performance-handoff.md).
+The final consolidated handoff PDF remains a separate workstream.
 
 ## Shared presentation
 

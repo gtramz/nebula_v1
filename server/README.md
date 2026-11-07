@@ -519,3 +519,9 @@ See [the collaboration interface handoff](../docs/collaboration-interface-handof
 for the shared shape/control policy, role/state guidance, per-tab working-copy
 recovery, revision review and verification boundaries. The collaboration APIs,
 permissions and stored terms/submission history are unchanged.
+
+### Return navigation and Discovery performance
+
+See [UX-02 / PERF-01 delivery notes](../docs/navigation-performance-handoff.md) for
+context restoration, unsaved-work guards, media lifecycle, benchmark methodology
+and the remaining physical-device validation boundary.

@@ -89,7 +89,7 @@ test('server-backed funding UI: USD, repeated contributions, visibility, receipt
     await page.getByRole('checkbox', { name: 'Show my name publicly' }).check(); await page.getByRole('checkbox', { name: 'Show my total amount publicly' }).check();
     await page.getByRole('button', { name: /^PREVIEW / }).click();
     await expect(page.getByRole('heading', { name: 'pledge preview saved' })).toBeVisible();
-    await page.getByRole('link', { name: 'RETURN TO PROJECT' }).click();
+    await page.getByRole('link', { name: 'Back to project' }).click();
   }
   const community = page.getByRole('region', { name: 'Project community' });
   await expect(community.getByText('Funding Investor', { exact: true })).toHaveCount(1); await expect(community.getByText('USD 300.30', { exact: true })).toBeVisible();
