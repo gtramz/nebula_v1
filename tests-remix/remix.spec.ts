@@ -106,7 +106,9 @@ test('microphone permission is requested on demand, recording stops, and changed
   await expect(page.getByRole('alert')).toContainText('Microphone permission denied');
   await page.getByRole('button', { name: 'Record audio', exact: true }).click();
   await expect(page.getByText('Recording your microphone…', { exact: true })).toBeVisible();
+  await expect(page.locator('[data-notification-bell]:visible')).toBeDisabled();
   await expect(page.getByText(/Your contribution is ready/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('[data-notification-bell]:visible')).toBeEnabled();
   expect(await page.evaluate(() => (window as any).tracks.every((track: MediaStreamTrack) => track.readyState === 'ended'))).toBe(true);
   await page.getByRole('button', { name: 'Build preview', exact: true }).click(); await previewReady(page);
   await page.getByLabel('Base volume', { exact: true }).press('ArrowLeft');

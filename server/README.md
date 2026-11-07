@@ -246,11 +246,18 @@ upgrade checks for the column before adding it; no existing record is reset.
 
 ## Private artist notifications
 
-The navigation bell links to `/notifications` on desktop and mobile. Only signed-in
-artists see it. It shows the recipient's unread count; the inbox lists 30 events
+The navigation bell opens one app-shell modal without changing the current route: a
+right-side drawer on desktop/tablet and a bottom sheet on mobile. Only signed-in
+artists see it. `/notifications` remains available as a direct-link inbox. Closing
+with Escape, the close button or the backdrop restores focus to the visible bell.
+The underlying page stays mounted, retaining forms, files, previews and scroll.
+Opening pauses page media; closing does not automatically resume playback. During
+Remix recording/rendering/upload operations the bell is temporarily disabled until
+the operation finishes or is cancelled, so opening a panel cannot damage capture.
+It shows the recipient's unread count; the inbox lists 30 events
 per page with earlier-event pagination. Artists can mark one event or all events
-through the inbox's last observed ID as read. Opening an unread event marks that
-event read and navigates to the participant workspace. Read state is private,
+through the inbox's last observed ID as read. Selecting View collaboration on an
+unread event marks that event read and navigates to the participant workspace. Read state is private,
 not a message read receipt, and survives logout and server restart.
 
 Events cover first contact, messages, proposals, revision requests, acceptance,
@@ -260,8 +267,8 @@ Reusing an existing conversation does not generate another contact event. An
 action never notifies its own author. Each event is inserted in the same SQLite
 transaction as its action; unsuccessful actions do not create notifications.
 
-The additive `artist_notifications` table starts recording events after this
-upgrade; previous actions are not replayed. Events contain a type, participants
+The existing `artist_notifications` storage is unchanged by the panel; no schema
+migration is needed. Actions predating notifications are not replayed. Events contain a type, participants
 and collaboration reference; they do not copy private message contents or files.
 All reads and read-state mutations are restricted to the authenticated recipient.
 Role, origin and session protections also apply to direct API requests.
@@ -273,11 +280,33 @@ Role, origin and session protections also apply to direct API requests.
   all existing events through that recipient-owned ID. Repeated reads are
   idempotent. Events arriving after throughId stay unread. Limit: 120/min/account.
 
-The bell and inbox poll every 10 seconds while active and refresh on window focus.
+One app-shell query owns the 10-second summary poll and window-focus refresh,
+shared by both responsive bell instances. The inbox has no polling timer: it loads
+on opening and refreshes when the summary changes. Read mutations cancel stale
+reads before writing; read-all retains its observed-ID boundary. Request signals
+cancel abandoned loads, and account changes discard the previous artist cache.
 They do not request OS/browser notification permission or send email/push.
 No notification preferences, grouping, real-time transport or retention job yet.
 Tests cover both recipient roles, unread indicators, keyboard entry, direct
 workspace access, read persistence, pagination, new-arrival races and isolation.
+
+Panel verification (2026-11-06, Chrome 157 on macOS and emulated iPhone 13):
+96 distinct checks passed across unit (31), server (21), collaboration/notification
+(12), shared account/history/navigation/publication (20), Discovery (6), and
+selected audio/video/microphone Remix regression tests (6). Eight panel tests were
+rerun on the final layout build `index-CAS95KN3.js`, including unsaved remix tracks,
+preview URL and gains; unsent proposals/files/messages; cancelled navigation;
+focus restoration after breakpoint changes; session expiry and request failures.
+The polling check observes two 10-second periods, one list request for an unchanged
+summary and no per-bell duplicate timer. Initial browser-test failures were locator
+issues corrected to use accessible roles and the actual feed attributes, not data
+loss. Safari and physical mobile devices were not exercised.
+
+TypeScript and the production build passed; existing sourcemap and >500 kB bundle
+warnings remain. Activation used a stopped-server backup and verified all 15
+existing tables and all five media-file hashes unchanged. Evidence is under the
+workspace's sibling `auditoria/notification-panel` directory. No API/schema or
+production Antiq integration change is part of this panel.
 
 ## Private unified remix studio
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'wouter';
+import { useNotificationLock } from '@/features/notifications';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Publication, RemixInput, UploadedMedia, RemixDraft } from '@nebula/local';
 import { uploadMedia } from '@/features/discovery/publication-api';
@@ -17,6 +18,7 @@ export function Studio({ original, draft, onDrafts }: { original: Publication; d
   const [settings, setSettings] = useState<RemixInput>(draft.settings);
   const [length, setLength] = useState(0), [own, setOwn] = useState<Contribution | null>(draft.contribution ? { url: draft.contribution.url, kind: draft.contribution.kind as 'audio'|'video', duration: draft.contribution.duration, name: draft.contribution.name ?? 'Saved contribution', mediaId: draft.contribution.id } : null), [title, setTitle] = useState(draft.title), [description, setDescription] = useState(draft.description);
   const [busy, setBusy] = useState(false), [recording, setRecording] = useState<'audio' | 'video' | null>(null), [dirty, setDirty] = useState(false), [error, setError] = useState(''), [progress, setProgress] = useState('');
+  useNotificationLock(busy || !!recording);
   const [mix, setMix] = useState<Blob | null>(null), [preview, setPreview] = useState(draft.render?.url ?? ''), [playable, setPlayable] = useState(false), [saved, setSaved] = useState(false);
   const base = useRef<HTMLMediaElement | null>(null), camera = useRef<HTMLVideoElement | null>(null), player = useRef<HTMLMediaElement | null>(null), canvas = useRef<HTMLCanvasElement | null>(null);
   const alive = useRef(true), controller = useRef<AbortController | null>(null), rec = useRef<MediaRecorder | null>(null), capture = useRef<MediaStream | null>(null), timer = useRef<ReturnType<typeof setTimeout> | null>(null), uploaded = useRef<UploadedMedia | null>(draft.render), savedDraft = useRef(draft), contributionUpload = useRef<UploadedMedia | null>(draft.contribution);

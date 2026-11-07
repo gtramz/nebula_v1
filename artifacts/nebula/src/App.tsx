@@ -13,7 +13,7 @@ import { AppShell } from '@/components/shell/app-shell';
 
 import { SavedPublications } from '@/features/discovery/social';
 import { CollaborationsPage, CollaborationPage } from '@/features/collaborations';
-import { NotificationsPage } from '@/features/notifications';
+import { NotificationsPage, NotificationsProvider } from '@/features/notifications';
 import { RemixPage, LegacyRemixPage } from '@/features/remix';
 import Home from '@/pages/home';
 import Explore from '@/pages/explore';
@@ -35,7 +35,7 @@ const queryClient = new QueryClient({
 
 function Router() {
   return (
-    <AppShell>
+    <NotificationsProvider><AppShell>
       <RoutedErrorBoundary>
         <Switch>
           <Route path="/" component={Home} />
@@ -64,7 +64,7 @@ function Router() {
           <Route component={NotFound} />
         </Switch>
       </RoutedErrorBoundary>
-    </AppShell>
+    </AppShell></NotificationsProvider>
   );
 }
 

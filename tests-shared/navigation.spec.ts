@@ -55,7 +55,7 @@ test('artist and investor destinations keep the same active states at every brea
       await geometry(page,width,true);await expect(nav(page).getByRole('link')).toHaveCount(5);
       await expect(nav(page).getByRole('link',{name:label,exact:true})).toHaveAttribute('href',`/${label}`);
       await expect(nav(page).getByRole('link',{name:label,exact:true})).toHaveAttribute('aria-current','page');
-      await expect(page.getByRole('link',{name:/^Notifications/})).toHaveCount(role==='artist'?1:0);
+      await expect(page.getByRole('button',{name:/^Notifications/})).toHaveCount(role==='artist'?1:0);
     }
     await nav(page).getByRole('link',{name:'profile',exact:true}).click();await expect(nav(page).getByRole('link',{name:'profile',exact:true})).toHaveAttribute('aria-current','page');
   }

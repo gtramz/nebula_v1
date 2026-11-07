@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'rea
 import { useQuery } from '@tanstack/react-query';
 import { apiRequest, type Waveform } from '@nebula/local';
 import { Disc3, Pause, Play, Volume2, VolumeX } from 'lucide-react';
+import { useNotificationsOpen } from '@/features/notifications';
 import type { DemoPost } from './demo-posts';
 
 const time = (seconds: number) => `${Math.floor(seconds / 60)}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`;
@@ -41,6 +42,8 @@ function WaveformProgress({ data, progress }: { data: Waveform; progress: number
 }
 
 export function DiscoveryMedia({ post, active, blocked, waveformAccess }: { post: DemoPost; active: boolean; blocked: boolean; waveformAccess: boolean }) {
+  const notificationsOpen = useNotificationsOpen();
+  blocked = blocked || notificationsOpen;
   const media = useRef<HTMLMediaElement | null>(null), wasActive = useRef(false);
   const allowed = useRef(false); allowed.current = active && !blocked;
   const [playing, setPlaying] = useState(false), [muted, setMuted] = useState(post.media.kind === 'video');
