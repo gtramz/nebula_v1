@@ -1,3 +1,5 @@
+import { artistSearchText } from './artist-search-genres.js';
+import { normalizeTaxonomyTerm } from './artist-taxonomy.js';
 import type {
   Artist, ArtistDetail, ArtistSummary, Investment, InvestmentInput,
   InvestorRegistration, ListArtistsParams, ListProjectsParams, LoginCredentials,
@@ -7,7 +9,11 @@ import type {
 
 export type AccountRegistration = InvestorRegistration & { role: SessionUserRole };
 export type LocalLogin = LoginCredentials;
-export type ArtistProfileInput = Pick<Artist, 'name' | 'genre' | 'basedIn' | 'bio' | 'recordLabel' | 'picture'>;
+export type ArtistProfileInput = Pick<Artist, 'name' | 'genre' | 'basedIn' | 'bio' | 'recordLabel' | 'picture' | 'creativeRoles' | 'genres' | 'genreIds' | 'collaborationAvailability' | 'externalLinks' | 'publicInterests'>;
+export type ArtistIdentityUpdate = { profile?: Partial<ArtistProfileInput>; preferences?: ArtistPreferencesUpdate; onboarding?: ArtistOnboardingUpdate; expected?: { profile: Partial<Artist>; preferences: ArtistPreferences } };
+export type PublicArtistProfile = { artist: Artist; projects: Project[]; opportunityProjectIds: number[] };
+
+import { advanceArtistOnboarding, emptyArtistOnboarding, type ArtistOnboarding, type ArtistOnboardingUpdate, artistPreferencesUpdate, emptyArtistPreferences, mergeArtistPreferences, professionalIdentityUpdate, publicArtist, validateArtistProfileKeys, type ArtistPreferences, type ArtistPreferencesUpdate } from './artist-identity.js';
 
 import { parseState, PreviewDataError, type State, type StoredProject, type StoredInvestment } from './state.js';
 import { CURRENCY, isMoney, sumMoney } from './money.js';
@@ -86,7 +92,7 @@ export function createLocalStore(storage: Pick<Storage, 'getItem' | 'setItem'>, 
     return {
       role: account.role, name: account.name, email: account.email,
       investorId: account.role === 'investor' ? account.id : null,
-      artistId: artist?.id ?? null, picture: artist?.picture ?? null, artist,
+      artistId: artist?.id ?? null, picture: artist?.picture ?? null, artist: artist ? publicArtist(artist) : null,
     };
   }
 
@@ -165,6 +171,32 @@ export function createLocalStore(storage: Pick<Storage, 'getItem' | 'setItem'>, 
     const project = state.projects.find((item) => item.id === id);
     check(project && !project.archivedAt && project.artistId === account.id, 'This project does not belong to this artist.');
     return project;
+  }
+
+  function applyArtistProfile(state: State, input: ArtistProfileInput): Artist {
+      const account = currentAccount(state, 'artist');
+      const artist = state.artists.find((item) => item.id === account.id)!;
+      validateArtistProfileKeys(input);
+      const professional = professionalIdentityUpdate(input);
+      check(typeof input.name === 'string', 'Enter an artist name.');
+      const name = input.name.trim();
+      check(name.length >= 2 && name.length <= 120, 'Enter an artist name between 2 and 120 characters.');
+      const basic: Partial<Artist> = { name };
+      for (const key of ['genre', 'basedIn', 'bio', 'recordLabel'] as const) {
+        if (input[key] !== undefined) {
+          check(input[key] === null || (typeof input[key] === 'string' && input[key]!.length <= (key === 'bio' ? 4000 : 120)), `Invalid ${key}.`);
+          basic[key] = input[key];
+        }
+      }
+      if (input.picture !== undefined) basic.picture = localImage(input.picture);
+      if (professional.creativeRoles !== undefined) {
+        const unresolved = publicArtist(artist).identityReview!.creativeRoles;
+        check(unresolved.length <= 100, 'Previous role information needs review before editing. Your saved data has been preserved.');
+        if (unresolved.length) artist.legacyCreativeRoles = unresolved;
+      }
+      Object.assign(artist, basic, professional);
+      account.name = name;
+      return publicArtist(artist);
   }
 
   return {
@@ -246,15 +278,47 @@ export function createLocalStore(storage: Pick<Storage, 'getItem' | 'setItem'>, 
       save(state);
     },
     updateArtist(input: ArtistProfileInput): Artist {
-      const state = read();
-      const account = currentAccount(state, 'artist');
-      const artist = state.artists.find((item) => item.id === account.id)!;
-      const name = input.name.trim();
-      check(name.length >= 2 && name.length <= 120, 'Enter an artist name between 2 and 120 characters.');
-      Object.assign(artist, { ...input, name, picture: localImage(input.picture) });
-      account.name = name;
+      const state = read(), artist = applyArtistProfile(state, input); save(state); return artist;
+    },
+    getMyArtistOnboarding(): ArtistOnboarding {
+      return currentAccount(read(), 'artist').artistOnboarding ?? emptyArtistOnboarding();
+    },
+    updateArtistIdentity(input: ArtistIdentityUpdate) {
+      const state = read(), account = currentAccount(state, 'artist');
+      check(input && typeof input === 'object' && !Array.isArray(input) && Object.keys(input).every(key => ['profile', 'preferences', 'onboarding', 'expected'].includes(key)), 'Unsupported artist identity field.');
+      const currentArtist = publicArtist(state.artists.find(a => a.id === account.id)!);
+      if (input.expected !== undefined) {
+        const expected = input.expected;
+        check(expected && typeof expected === 'object' && expected.profile && expected.preferences, 'Invalid profile edit baseline.');
+        const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+        const conflict = 'Your profile changed in another tab. Cancel and reopen the editor to review the latest version before saving.';
+        for (const key of Object.keys(input.profile ?? {}) as (keyof Artist)[]) check(same(currentArtist[key], expected.profile[key]), conflict);
+        const currentPreferences = account.artistPreferences ?? emptyArtistPreferences();
+        for (const group of ['collaboration', 'discovery'] as const) {
+          for (const key of Object.keys(input.preferences?.[group] ?? {})) {
+            check(same((currentPreferences[group] as unknown as Record<string, unknown>)[key], (expected.preferences[group] as unknown as Record<string, unknown>)?.[key]), conflict);
+          }
+        }
+      }
+      // Validate every section before committing any change. One existing state write.
+      const preferences = input.preferences !== undefined ? mergeArtistPreferences(account.artistPreferences, artistPreferencesUpdate(input.preferences)) : undefined;
+      const onboarding = input.onboarding !== undefined ? advanceArtistOnboarding(account.artistOnboarding, input.onboarding) : undefined;
+      if (input.profile !== undefined) applyArtistProfile(state, { name: currentArtist.name, ...input.profile });
+      if (preferences) account.artistPreferences = preferences;
+      if (onboarding) account.artistOnboarding = onboarding;
       save(state);
-      return artist;
+      return { artist: publicArtist(state.artists.find(a => a.id === account.id)!), preferences: account.artistPreferences ?? emptyArtistPreferences(), onboarding: account.artistOnboarding ?? emptyArtistOnboarding() };
+    },
+    getMyArtistPreferences(): ArtistPreferences {
+      return currentAccount(read(), 'artist').artistPreferences ?? emptyArtistPreferences();
+    },
+    updateMyArtistPreferences(input: ArtistPreferencesUpdate): ArtistPreferences {
+      const state = read(), account = currentAccount(state, 'artist');
+      const patch = artistPreferencesUpdate(input);
+      // The caller never supplies the owner. Preserve unspecified nested fields.
+      account.artistPreferences = mergeArtistPreferences(account.artistPreferences, patch);
+      save(state);
+      return account.artistPreferences;
     },
     listProjects(params: ListProjectsParams = {}): Project[] {
       const state = read();
@@ -293,7 +357,7 @@ export function createLocalStore(storage: Pick<Storage, 'getItem' | 'setItem'>, 
       if (!project) return null;
       const viewer = sessionUser(state);
       return {
-        project: projectDto(state, project), artist: state.artists.find((item) => item.id === project.artistId)!,
+        project: projectDto(state, project), artist: publicArtist(state.artists.find((item) => item.id === project.artistId)!),
         backers: publicBackers(state, id),
         viewerVisibility: viewer?.role === 'investor' ? (() => {
           const settings = state.visibility.find(item => item.projectId === id && item.investorId === viewer.investorId);
@@ -308,15 +372,21 @@ export function createLocalStore(storage: Pick<Storage, 'getItem' | 'setItem'>, 
     },
     listArtists(params: ListArtistsParams = {}): ArtistSummary[] {
       const state = read();
-      const search = params.search?.trim().toLowerCase();
-      return state.artists.filter((artist) => !search || `${artist.name} ${artist.genre ?? ''}`.toLowerCase().includes(search)).map((artist) => {
+      const query = params.search?.trim(), search = normalizeTaxonomyTerm(query ?? '').trim();
+      return state.artists.filter((artist) => !query || artist.name.toLowerCase().includes(query.toLowerCase()) || (!!search && artistSearchText(artist).includes(search))).map((artist) => {
         const projects = visibleProjects(state).filter((item) => item.artistId === artist.id);
         const ids = new Set(state.projects.filter(item => item.artistId === artist.id
           && (item.archivedAt || projects.some(project => project.id === item.id))).map(item => item.id));
-        return { ...artist, projectCount: projects.length,
+        return { ...publicArtist(artist), projectCount: projects.length,
           totalRaised: sumMoney(state.investments.filter((item) => ids.has(item.projectId!)).map(item => item.amount)),
           supportersCount: new Set(state.supports.filter((item) => ids.has(item.projectId)).map((item) => item.artistId)).size };
       });
+    },
+    getPublicArtist(id: number): PublicArtistProfile | null {
+      const state = read(), artist = state.artists.find(item => item.id === id);
+      if (!artist) return null;
+      const projects = state.projects.filter(p => p.artistId === id && ['published','funding','funded','closed'].includes(p.status ?? 'draft') && !p.archivedAt).map(p => projectDto(state, p));
+      return { artist: publicArtist(artist), projects, opportunityProjectIds: projects.filter(p => p.status === 'funding').map(p => p.id) };
     },
     getArtist(id: number): ArtistDetail | null {
       const state = read();
@@ -325,7 +395,7 @@ export function createLocalStore(storage: Pick<Storage, 'getItem' | 'setItem'>, 
       const projects = visibleProjects(state).filter((item) => item.artistId === id).map((item) => projectDto(state, item));
       const ids = new Set(state.projects.filter(item => item.artistId === id
         && (item.archivedAt || projects.some(project => project.id === item.id))).map(item => item.id));
-      return { artist, projects, totalRaised: sumMoney(state.investments.filter(item => ids.has(item.projectId!)).map(item => item.amount)),
+      return { artist: publicArtist(artist), projects, totalRaised: sumMoney(state.investments.filter(item => ids.has(item.projectId!)).map(item => item.amount)),
         totalGoal: sumMoney(projects.map(item => item.goalAmount)),
         backersCount: new Set(state.investments.filter((item) => ids.has(item.projectId!)).map((item) => item.investorId)).size };
     },

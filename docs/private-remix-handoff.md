@@ -1,5 +1,7 @@
 # Private Remix Workspace — implementation handoff
 
+> Historical phase snapshot. For current status, superseding features and consolidated verification, see [Manuel release handoff](manuel-release-handoff.md). Earlier deferred items may now be implemented; the current operation inventory is [integration-contracts.md](integration-contracts.md).
+
 ## Scope and baseline
 
 This change implements the private remix workspace decision from UX-05 and its local API boundary from INT-01, against baseline `aecbd000284c7578b45f32354c08f78326573d2f`. It does not claim completion of the separate collaboration styling, search, notification overlay or Discovery profiling workstreams. The integrated local mock server remains the review environment; no Antiq production service, identity provider or payment provider is connected.

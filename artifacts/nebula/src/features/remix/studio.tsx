@@ -53,6 +53,8 @@ export function Studio({ original, draft, onDrafts }: { original: Publication; d
     setSettings(current => ({ ...current, startSeconds: range.start, endSeconds: range.end, voiceOffset: 0 }));
     if (base.current) base.current.currentTime = range.start;
   }
+  // Source monitoring follows the same gain used for recording and export.
+  useEffect(() => { if (base.current) base.current.volume = settings.baseGain; }, [settings.baseGain]);
   const audioAllowed = sourceKind === 'audio' && original.media.size <= 25 * 1024 * 1024;
   const outputKind = own?.kind === 'audio' ? 'audio' : 'video';
   const decodedBase = useRef<AudioBuffer | null>(null);

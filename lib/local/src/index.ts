@@ -6,11 +6,19 @@ import { getLocalStore } from './browser';
 import type { InvestmentInput, ListArtistsParams, ListProjectsParams, ProjectInput, ProjectUpdate, PublicVisibility } from './types';
 
 export * from './types';
-export type { ArtistProfileInput } from './store';
+export type { OpportunityProject, OpportunityPage } from './opportunities';
+export type { ArtistProfileInput, ArtistIdentityUpdate, PublicArtistProfile } from './store';
+export type { ArtistExternalLink, ArtistOnboarding, ArtistOnboardingUpdate, OnboardingStep, PublicArtistInterest } from './artist-identity';
+export { publicArtistInterestValues, emptyArtistPreferences, emptyArtistOnboarding } from './artist-identity';
+export type { ArtistProfessionalIdentity, ArtistPreferences, ArtistPreferencesUpdate, CreativeRole, CollaborationAvailability } from './artist-identity';
+export { creativeRoleTaxonomy, collaborationAvailabilityValues } from './artist-identity';
+export { musicalGenreTaxonomy, normalizeTaxonomyTerm, resolveLegacyTaxonomy } from './artist-taxonomy';
+export type { MusicalGenre, TaxonomyOption } from './artist-taxonomy';
+export * from './artist-search-genres';
 export { PreviewDataError } from './store';
 export { getLocalStore, initializeLocalStore, exportBrowserBackup } from './browser';
 export { CURRENCY, sumMoney } from './money';
-export { isServerMode, apiRequest, transferBrowserAccount } from './remote';
+export { isServerMode, apiRequest, transferBrowserAccount, sessionIdentity } from './remote';
 export type { Publication, PublicationInput, UploadedMedia, RemixInput, RemixAttribution, Waveform } from './publications';
 
 type LocalQueryOptions = { query?: { enabled?: boolean; queryKey?: QueryKey; staleTime?: number; retry?: boolean } };
@@ -71,6 +79,15 @@ export function useGetProject(id: number, options?: LocalQueryOptions) {
 export function useGetArtist(id: number, options?: LocalQueryOptions) {
   return useLocalQuery(getGetArtistQueryKey(id), () => getLocalStore().getArtist(id), options);
 }
+export function usePublicArtist(id: number) {
+  return useLocalQuery(['public-artist', id], () => getLocalStore().getPublicArtist(id), { query: { enabled: Number.isSafeInteger(id) && id > 0 } });
+}
+export function useMyArtistOnboarding(options?: LocalQueryOptions) {
+  return useLocalQuery(['my-artist-onboarding'], () => getLocalStore().getMyArtistOnboarding(), options);
+}
+export function useUpdateArtistIdentity() {
+  return useLocalMutation((variables: { data: import('./store').ArtistIdentityUpdate }) => getLocalStore().updateArtistIdentity(variables.data));
+}
 export function useListMyInvestments(options?: LocalQueryOptions) {
   return useLocalQuery(getListMyInvestmentsQueryKey(), () => getLocalStore().listMyInvestments(), options);
 }
@@ -88,6 +105,12 @@ export function useLogout() {
 }
 export function useUpdateArtistProfile() {
   return useLocalMutation((variables: { data: ArtistProfileInput }) => getLocalStore().updateArtist(variables.data));
+}
+export function useMyArtistPreferences(options?: LocalQueryOptions) {
+  return useLocalQuery(['my-artist-preferences'], () => getLocalStore().getMyArtistPreferences(), options);
+}
+export function useUpdateMyArtistPreferences() {
+  return useLocalMutation((variables: { data: import('./artist-identity').ArtistPreferencesUpdate }) => getLocalStore().updateMyArtistPreferences(variables.data));
 }
 export function useCreateProject() {
   return useLocalMutation((variables: { data: ProjectInput }) => getLocalStore().createProject(variables.data));
@@ -120,6 +143,16 @@ export function useUpdateProjectVisibility() {
 }
 
 export type { CollaborationOffer, OfferInput, Compensation, Collaboration, CollaborationDetail } from './collaborations';
-export type { ArtistNotification, NotificationKind, NotificationPage, NotificationSummary } from './notifications';
+export type { ArtistNotification, CollaborationNotificationKind, ConversationNotificationKind, NotificationKind, NotificationTarget, NotificationPage, NotificationSummary } from './notifications';
+export { notificationHref } from './notifications';
 
 export type { RemixDraft, RemixDraftUpdate } from './remix-drafts';
+
+export * from './opportunity-search';
+export * from './home-search-history';
+export { getHomeRankingGeneration, subscribeHomeRanking } from './home-ranking-context';
+
+export type { Admission, ConversationKind, ConversationMessage, ConversationCard, GeneralConversation } from './messages';
+export { conversationHref } from './messages';
+
+export * from './works';

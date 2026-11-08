@@ -1,5 +1,17 @@
 # Persistent local mock server
 
+Artist identity Phase 1.1 adds optional professional roles, artist genre labels and
+public availability to the existing Artist model, plus account-private collaboration
+and discovery preferences. Existing authentication and account types are unchanged.
+Use the existing RPC envelope for `getMyArtistPreferences` and
+`updateMyArtistPreferences`; only the current artist can access them. Public profile
+updates remain `updateArtist`. There is no startup migration or additional table.
+The compatibility rules, privacy boundary, field vocabulary and API examples are in
+[Artist identity Phase 1.1](../docs/artist-identity-phase-1-1.md).
+The [structured taxonomy extension](../docs/artist-taxonomy-extension.md) adds
+17 canonical professional roles, 40 musical genres/subgenres and private profile
+selection controls. New clients submit `genreIds`; legacy genre text stays intact.
+
 This is the integrated review environment. Antiq production integration remains owned by Manuel; no production identity or payment service is activated. For the new private draft contracts and legacy remix policy see [private remix handoff](../docs/private-remix-handoff.md).
 
 Run from the repository root using Node 24.17 or newer:
@@ -78,7 +90,7 @@ Publications support title, description, audio/video, optional cover, optional
 owned project, `allowRemix`, and `draft`/`published`/`withdrawn` status. A linked
 draft project must be published first. Withdrawing a post prevents new public
 media requests unless another published post references the same asset; it
-cannot recall already downloaded or buffered copies. Permission to remix is enforced by the audio/video studios described below.
+cannot recall already downloaded or buffered copies. Permission to remix is enforced by the unified private studio described below.
 
 Limits: 100 MB audio/video/ZIP, 20 MB PDFs, 5 MB covers, 1 GB stored per artist, 5 GB overall.
 Signatures are checked server-side (not just filenames or submitted MIME types).
@@ -124,7 +136,7 @@ application versions compatible. Browser exports are not server backups.
 No automated backup schedule is enabled. Password reset/email verification,
 malware scanning/transcoding, moderation and multi-instance scaling remain
 separate work before a public production launch. Contributions remain simulated
-USD previews, not payment processing. Royalties and collaboration agreements remain unimplemented. Demo interactions
+USD previews, not payment processing. Collaboration terms and acceptance are stored locally; royalty accounting, legal signatures and settlement are not implemented. Demo interactions
 remain separate from server-backed interactions.
 
 ## Validation
@@ -232,8 +244,7 @@ API (mutations retain the origin/session protections):
   withdraw, deliver or complete; requires the current workspace revision.
 
 Offers poll every 15 seconds; workspaces and lists poll every 10 seconds.
-In-app notifications are available as described below. No read receipts, typing
-indicators, blocking or reports yet.
+In-app notifications are available as described below. Unified Messages tracks per-participant read cursors and admission state; typing indicators, blocking and reports remain outside this delivery.
 Text is rendered literally. Writes are limited to 60/minute/account.
 Tests: pnpm test:server and pnpm test:collaborations. The collaboration browser
 suite runs separately from test:shared so each suite uses a fresh server and
@@ -256,20 +267,28 @@ Remix recording/rendering/upload operations the bell is temporarily disabled unt
 the operation finishes or is cancelled, so opening a panel cannot damage capture.
 It shows the recipient's unread count; the inbox lists 30 events
 per page with earlier-event pagination. Artists can mark one event or all events
-through the inbox's last observed ID as read. Selecting View collaboration on an
-unread event marks that event read and navigates to the participant workspace. Read state is private,
+through the inbox's last observed ID as read. Selecting View collaboration or View artist on an
+unread event marks it read and navigates to its typed, available destination. Read state is private,
 not a message read receipt, and survives logout and server restart.
 
 Events cover first contact, messages, proposals, revision requests, acceptance,
 decline (including other pending applicants when someone is selected), withdrawal,
 delivery and completion. Offer edits/closure notify applicants with pending work.
-Reusing an existing conversation does not generate another contact event. An
+An effective Artist follow also notifies only the followed Artist. Repeated PUTs
+do not create or modify a notice; Unfollow retains history, and Refollow creates
+one new occurrence. Reusing an existing conversation does not generate another contact event. An
 action never notifies its own author. Each event is inserted in the same SQLite
 transaction as its action; unsuccessful actions do not create notifications.
 
-The existing `artist_notifications` storage is unchanged by the panel; no schema
-migration is needed. Actions predating notifications are not replayed. Events contain a type, participants
-and collaboration reference; they do not copy private message contents or files.
+The follow-notifications delivery rebuilds the legacy `artist_notifications` table
+transactionally, preserving historical fields, IDs, indexes, read dates and the
+autoincrement high-water mark. It adds a typed destination and unique optional
+occurrence key. Collaboration events retain their collaboration reference; Follow
+events reference the follower's Artist profile, with no fictitious collaboration.
+Unavailable destinations remain historical notices without an operational link.
+Actions predating notifications are not replayed. Events do not copy private
+message contents, profiles or files. The full migration and occurrence policy are
+in [the compatible notifications handoff](../docs/follow-notifications-handoff.md).
 All reads and read-state mutations are restricted to the authenticated recipient.
 Role, origin and session protections also apply to direct API requests.
 
@@ -465,11 +484,14 @@ a 240 px expanded sidebar. Desktop starts expanded. The independent localStorage
 key `nebula-navigation-expanded` remembers the choice; unavailable storage falls
 back to in-memory state. Tablet and mobile never overwrite the desktop preference.
 
-The routes are Discovery, Explore, Search, Pledges (investors) / Received (artists),
-and Profile. History and Profile require a session. Notifications keep their
-artist-only rules and appear in the sidebar or mobile header. Login and signup
-remain available to visitors. Login, registration and the public landing page
-have no primary navigation. They retain an in-flow More control.
+Artist primary routes are Discovery, Home, Search, Received, Messages and Profile.
+Below 768 px Received is hidden from both visual and accessible primary navigation:
+Profile's existing Contributions received card opens the unchanged history screen.
+Profile is active on mobile while visiting Received. Investor Pledges stays unchanged.
+Mobile More and Logout are inside Profile; desktop retains its sidebar/profile controls.
+Notifications retain Artist-only rules; immersive mobile Discovery hides its top
+header/bell while other mobile screens retain the bell. Login/signup remain available
+to visitors. Public landing/auth pages have no primary navigation.
 
 The fixed footer is replaced by More, which holds Home, Explore, copyright and
 local-mode information. Clear demo data remains exclusive to browser preview
@@ -525,3 +547,162 @@ permissions and stored terms/submission history are unchanged.
 See [UX-02 / PERF-01 delivery notes](../docs/navigation-performance-handoff.md) for
 context restoration, unsaved-work guards, media lifecycle, benchmark methodology
 and the remaining physical-device validation boundary.
+
+## Phase 1 Home / opportunity discovery
+
+`/explore` keeps its URL. In integrated mode, artists and visitors see **Home**;
+logged-in investors retain the existing Explore catalog and financing interface.
+`/` remains the public landing page. The browser-only preview retains its catalog:
+collaboration offers are server-backed and are not fabricated or silently replaced
+with demo data on an API failure. No new dependencies or schema migrations.
+
+### Read contract for the Antiq adapter (proposed local boundary, not a production URL)
+
+- `GET /api/opportunities/projects?category=ep&before=123`
+- Public read, identical result for visitors, artists (including the owner), and
+  investors. Only non-archived, non-draft, non-closed projects may qualify. Session
+  ownership never makes a private project or closed offer visible in Home.
+- Optional `category`: existing case-insensitive project category, max 60 chars.
+  Optional `before`: positive safe integer project ID; omit for the first page.
+- Typed response: `OpportunityPage` in `lib/local/src/opportunities.ts`, containing
+  `items: { project: Project; offers: CollaborationOffer[] }[]` and
+  `nextCursor: number | null`. Maximum 24 projects per response, descending project
+  ID (existing creation order); no personalized ranking or following graph.
+- A project qualifies when an offer is currently available or status is `funding`.
+  Offer availability reuses collaboration rules, including deadline in UTC.
+  Funding is a presentation of the existing project status, not a new offer row,
+  transaction or grant of rights. Each qualifying project occurs only once.
+- A bulk offer read avoids one HTTP request per card and repeated project-state
+  parsing. The local aggregate still scans the eligible project/offer sets; a
+  production indexed query belongs in the Antiq adapter at integration time.
+- No writes, secrets, private applications, messages, media drafts or ownership
+  changes. A cursor is not an authorization token. Each page recomputes current
+  eligibility. Newer projects appear on refresh; closing an opportunity can
+  remove a card without deleting the project or its history.
+- Errors: 400 for invalid query values; 405 for unsupported methods; 500 for
+  unexpected server failures. Existing shared transport maps network errors.
+  React Query passes AbortSignal on query disposal/filter changes, retries only
+  on explicit user action, and refreshes every 15 seconds/on window focus. No
+  custom request timeout was introduced. GET retry has no mutation side effect.
+  Pages deduplicate by project ID; loading additional pages is disabled while a
+  request is active. Existing 409 offer/proposal revision checks remain unchanged.
+- Offer mutations invalidate the Home query. Project mutations retain the shared
+  store's invalidation behavior. Loading, empty, filter-empty, failure and retry
+  are explicit; a failed refresh can retain previously loaded public cards.
+
+### UX and compatibility
+
+The Home card is separate from the existing ProjectCard used by investors,
+Search and profiles. It shows only stored artwork, text and compensation; missing
+artwork uses a neutral icon. Need and compensation remain separate; fixed USD fees
+and royalty shares are not described as equity. Three offers are summarized with
+an accurate full count and a link to the existing detail for remaining offers.
+Funding counts as one participation opportunity. No unsupported participation
+buttons are added. Project details reuse ProjectOffers and the established private
+conversation/proposal/remix workflows.
+
+Project-type filters remain optional. Their state, expansion, scroll and return
+focus use ReturnContext and the shared ReturnLink. The existing `/explore` route
+label becomes Home only for integrated artists/visitors; investor and browser-only
+labels remain Explore. More names `/` “landing page” for Home users to avoid two
+ambiguous Home destinations. Sidebar, mobile bar and notification ownership are
+unchanged. Controls reuse Antiq tokens and 44px targets, with no global CSS changes.
+
+Discovery's nullable `projectId` and View Project relationship are preserved.
+Closing all offers does not archive a project; public Search, artist profile and
+direct project links still work. A project still in funding remains in Home.
+Publication playback and private remix storage/permissions are not changed.
+
+### Deliberately deferred model decisions
+
+There is no MusicalWork entity, track-to-EP relationship or independent creative
+stage today. A subsequent design should define stable `MusicalWork.id`, optional
+parent `projectId`, and optional work references on publications/opportunities,
+with owner validation and explicit project-level versus work-level scope. Existing
+links must continue to mean project-level; do not infer scope from titles. No
+migration or automatic reassignment has been executed.
+
+Combined fee + royalty, negotiated compensation, songwriting/open-ended needs,
+artist-level financing eligibility and personalized/following modes require new
+product/contracts approval. Existing funding is a preview, not money movement.
+Manuel must confirm the aggregate's adapter mapping, identity, cursor and status
+semantics against Antiq central. No production provider or connection is enabled.
+
+This increment preserves UX-01/02/03/04/05 and PERF-01 behavior, and adds a scoped
+INT-01 contract plus QA-01 regressions. It does not close the full original handoff:
+the consolidated operation inventory, controlled `aecbd000` comparison, physical
+mobile/Safari checks and final English DEL-01 PDF remain delivery workstreams.
+
+### Reproducible focused checks
+
+Use Node >=24.17 and the existing dependencies. Compile `tsc --build`, UI
+`tsc -p artifacts/nebula/tsconfig.json --noEmit`, and server
+`tsc -p server/tsconfig.json`. Build the candidate using the existing Vite config.
+Set `NEBULA_TEST_PUBLIC_DIR` to its `public` directory for Playwright.
+
+- `node --test server/app.test.mjs`: Home eligibility, owner/visitor isolation,
+  close/expire/archive, compensation, cursor/category validation, pagination and
+  restart, alongside existing domain/permission regressions.
+- `playwright test --config playwright.shared.config.ts home.spec.ts return-context.spec.ts`:
+  Home cards, role isolation, breakpoints, filters/return, failure recovery and
+  closed-project links through Search/Discovery.
+- Run navigation, Search/social, collaboration/notification, Discovery and Remix
+  suites on disposable port 4175 data. Keep separate runs when necessary to
+  respect the unchanged authentication rate limit.
+
+The integrated review remains on port 4174. Back up SQLite with its backup API and
+copy media before activation; compare logical rows and media hashes afterward.
+No production records should be created by acceptance tests.
+
+### Phase 1 validation result (2026-11-07)
+
+Candidate assets: `index-BtUWXiAf.js` and `index-jQbfcnLQ.css`.
+Node 24.17.0, Playwright 1.64.1, Vitest 4.1.12. TypeScript library/UI/server
+checks, Vite build and `git diff --check` passed. Existing Vite warnings about the
+large initial JS chunk and dropdown source-map location remain.
+
+144 distinct scenario/profile checks passed across the scoped runs: 31 unit,
+17 server API, 28 Home/navigation/Search/social, 8 contextual return, 20
+collaboration/notifications, 14 private/unified Remix, 12 browser-only/history,
+6 Home WebKit and 8 Discovery. Chrome and WebKit mobile profiles are emulations,
+not physical-device or branded Safari evidence. This is not the final QA-01
+baseline comparison or an assertion that every application path was exercised.
+
+The first combined collaboration run passed 17 and hit the unchanged auth limit
+(HTTP 429 confirmed in network traces) in its final 3 mobile registrations. All
+3 passed in a fresh disposable test server. Initial Home tests reused fixture
+titles across profiles; those selectors were corrected with unique fixture names
+and all Home cases passed. No production safety limits were relaxed.
+
+Local evidence is under `../auditoria/home-phase1/`, including screenshots,
+failed-attempt traces and `verification.json`. The temporary WebKit and static
+configs are under `.data/`; the static run points Vite preview at the candidate
+assets and tests offline-shell, recovery-history and history-privacy. The WebKit
+config runs `tests-shared/home.spec.ts` with Desktop Safari/iPhone 13 profiles.
+
+The review server is running on 4174; log: `.data/home-phase1-server.log`.
+Backup pointer: `.data/last-home-phase1-backup`. After activation all 18 tables
+and 5 media files matched the backup and SQLite integrity was OK. The existing
+review catalog has no eligible active opportunities; the empty Home is expected.
+
+### Home contextual search (Phase 1)
+
+Home now provides in-place live search, real entity/taxonomy suggestions, independent search chips/category filters, and browser-local per-identity recent searches. Public read eligibility and project cards are unchanged; investor Explore and global Search are not replaced. API, field/genre limitations, history isolation, accessibility and central-integration boundaries are documented in [Home contextual search handoff](../docs/home-contextual-search-handoff.md). Read routes are `/api/opportunities/projects` (additive criteria and eligibility count) and `/api/opportunities/suggestions`. No migrations or production-central connection are introduced.
+
+### Multidimensional Home Project Browser
+
+The subsequent [Project Browser handoff](../docs/project-browser-handoff.md) documents repeated-value facets, the responsive Apply/Clear filter panel, shared search/history state, and additive chronological pagination. For You retains general ordering; Recently created uses actual `createdAt` (not a publication date); Following remains disabled pending real profile relationships. The existing read endpoints and records remain in place. Artist genres and current fee/split offers are the only supported metadata; no speculative profiles, roles, compensation contracts or database migrations are added.
+
+### Public Artist profile and optional onboarding (Phase 1.2)
+
+The [Phase 1.2 handoff](../docs/artist-profile-onboarding-phase-1-2.md) documents the public profile, shared private editor and four-step resumable Artist setup. `getPublicArtist`, `getMyArtistOnboarding` and atomic `updateArtistIdentity` extend the existing RPC transport; artist-scoped publication reads add `artistId` and `projectAudio=1` before pagination. External links/public interests live on the existing Artist; private preferences/progress remain on the existing account. No table, migration, authentication replacement or Investor flow change is introduced. Project audio is explicitly distinguished from formal releases; private collaboration activity is not exposed as a public credit. See the handoff for authorization, validation, limitations and verification evidence.
+
+
+## Artist Following — Phase 2.1
+
+See [Following implementation](../docs/following-phase-2-1.md) for the additive SQLite relationship, public paginated reads, authenticated Artist mutations, Home scope, event boundary and verification. Existing authentication, project eligibility, collaboration notifications and financial logic remain unchanged.
+
+
+## Consolidated integration status
+
+The authoritative current operation inventory is [integration-contracts.md](../docs/integration-contracts.md), and the release traceability and limitations are in [Manuel release handoff](../docs/manuel-release-handoff.md). Additional implemented domains include [unified messages](../docs/unified-messages-handoff.md), [transactional Follow notifications](../docs/follow-notifications-handoff.md), [preference-based Home ranking](../docs/home-for-you-handoff.md) and [project songs](../docs/project-songs-handoff.md). Earlier sections are supplemented by these contracts; a local workflow decision does not execute a financial transaction.

@@ -1,4 +1,4 @@
-import { useViewState } from '@/components/shell/return-context';
+import { useIsReturnNavigation, useViewState } from '@/components/shell/return-context';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { ProjectOffers } from '@/features/collaborations';
 import { apiRequest } from '@nebula/local';
@@ -6,11 +6,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import { LiveComments, refreshSocial } from '@/features/discovery/social';
 import { Link, useLocation } from 'wouter';
 import * as Dialog from '@radix-ui/react-dialog';
-import { ArrowDown, ArrowUpRight, Bookmark, Check, ChevronLeft, ChevronRight, Copy, Disc3, GitBranch, MessageCircle, Send, Star, X } from 'lucide-react';
+import { ArrowUpRight, Bookmark, Check, ChevronDown, ChevronUp, Copy, Disc3, GitBranch, MessageCircle, Send, Star, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { DEMO_POSTS, formatDemoUSD, type DemoPost, type DemoProject } from '@/features/discovery/demo-posts';
 import '@/features/discovery/discovery.css';
 import { DiscoveryMedia } from '@/features/discovery/media-player';
+import { DiscoveryProjectArtwork } from '@/features/discovery/cover-artwork';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 type Panel = { kind: 'project' | 'comments' | 'send' | 'login' | 'description'; postId: string };
 type PostActivity = { starred: boolean; saved: boolean; comments: { id: string; author: string; text: string }[] };
@@ -27,11 +29,11 @@ function Action({ label, icon, onClick, pressed, detail, disabled }: {
 function DiscoveryPostInfo({ children }: { children: ReactNode }) {
   return <div className="discovery-post-info">{children}</div>;
 }
-function DiscoveryActionRail({ title, reason, children }: { title: string; reason: string; children: ReactNode }) {
-  return <div className="discovery-action-rail"><div className="discovery-actions" aria-label={`Actions for ${title}`}>{children}</div>{reason && <p className="discovery-remix-reason">{reason}.</p>}</div>;
+function DiscoveryActionRail({ title, reason, children, artwork }: { title: string; reason: string; children: ReactNode; artwork?: ReactNode }) {
+  return <div className="discovery-action-rail"><div className="discovery-actions" aria-label={`Actions for ${title}`}>{children}</div>{artwork}{reason && <p className="discovery-remix-reason">{reason}.</p>}</div>;
 }
 
-function ProjectPanel({ project, live = false, projectId, ownerId }: { project: DemoProject; live?: boolean; projectId?: number; ownerId?: number }) {
+function ProjectPanel({ project, live = false, projectId, ownerId, workId }: { workId?: number; project: DemoProject; live?: boolean; projectId?: number; ownerId?: number }) {
   return <div className="discovery-project-info">
     <div><p className="discovery-eyebrow">{project.stage}</p><h3>{project.title}</h3><p className="discovery-byline">by {project.artist}</p></div>
     <p>{project.description}</p>
@@ -41,7 +43,7 @@ function ProjectPanel({ project, live = false, projectId, ownerId }: { project: 
       <p className="discovery-eyebrow">use of funds</p>
       {project.useOfFunds.map(item => <div key={item.label}><span>{item.label}</span><span>{item.percent}%</span></div>)}
     </section>
-    {live && projectId && <Link className="discovery-primary" href={`/project/${projectId}`}>Open full project</Link>}
+    {live && projectId && <Link className="discovery-primary" href={`/project/${projectId}${workId ? `?song=${workId}` : ''}`}>Open full project</Link>}
     {live && projectId && <ProjectOffers projectId={projectId} ownerId={ownerId} compact />}
     {!live && <section aria-label="Collaboration offers">
       <p className="discovery-eyebrow">open calls · {project.offers.length}</p><h3>Make it together.</h3>
@@ -56,8 +58,10 @@ function ProjectPanel({ project, live = false, projectId, ownerId }: { project: 
   </div>;
 }
 
-export default function Discovery({ posts = DEMO_POSTS, live = false, onLoadMore, loadingMore = false }: { posts?: DemoPost[]; live?: boolean; onLoadMore?: () => void; loadingMore?: boolean }) {
+export default function Discovery({ posts = DEMO_POSTS, live = false, onLoadMore, loadingMore = false, fetching = false, loadError, onRetry }: { posts?: DemoPost[]; live?: boolean; onLoadMore?: () => void; loadingMore?: boolean; fetching?: boolean; loadError?: string; onRetry?: () => void }) {
   const { user } = useAuth();
+  const isMobile = useIsMobile();
+  const isReturning = useIsReturnNavigation();
   const [, navigate] = useLocation();
   const client = useQueryClient();
   const [pending, setPending] = useState<string | null>(null);
@@ -74,7 +78,7 @@ export default function Discovery({ posts = DEMO_POSTS, live = false, onLoadMore
   const initialized = useRef(false);
   if (!initialized.current) {
     initialized.current = true;
-    if (entryPost.current && posts.some(post => post.id === entryPost.current) && activeId !== entryPost.current) setActiveId(entryPost.current);
+    if (!isReturning && entryPost.current && posts.some(post => post.id === entryPost.current) && activeId !== entryPost.current) setActiveId(entryPost.current);
   }
   const activeIndex = Math.max(0, posts.findIndex(post => post.id === activeId));
   const postOrder = posts.map(post => post.id).join(',');
@@ -86,6 +90,15 @@ export default function Discovery({ posts = DEMO_POSTS, live = false, onLoadMore
   const [copyStatus, setCopyStatus] = useState('');
   const [announcement, setAnnouncement] = useState('');
   const panelPost = posts.find(post => post.id === panel?.postId);
+  const requestedTail = useRef<string | undefined>(undefined);
+  const tail = posts.at(-1)?.id;
+  // The existing feed snapshot/cursor owns paging. One request per loaded tail;
+  // a failed request requires an explicit retry, rather than an effect loop.
+  useEffect(() => {
+    if (!isMobile || !live || panel || !onLoadMore || fetching || loadError || activeIndex < posts.length - 2 || requestedTail.current === tail) return;
+    requestedTail.current = tail;
+    onLoadMore();
+  }, [isMobile, live, panel, onLoadMore, fetching, loadError, activeIndex, posts.length, tail]);
   // Keep the same publication in view when server refreshes prepend new posts.
   useLayoutEffect(() => {
     if (feed.current) feed.current.scrollTop = cards.current[activeIndex]?.offsetTop ?? 0;
@@ -150,7 +163,7 @@ export default function Discovery({ posts = DEMO_POSTS, live = false, onLoadMore
   }
   function moveTo(index: number) {
     const container = feed.current, card = cards.current[index];
-    if (!container || !card) return;
+    if (!container || !card || index === activeIndexRef.current) return;
     // Pause the old media before moving; the scroll listener confirms alignment.
     cards.current[activeIndexRef.current]?.querySelectorAll<HTMLMediaElement>('video, audio').forEach(media => media.pause());
     activeIndexRef.current = index;
@@ -168,9 +181,15 @@ export default function Discovery({ posts = DEMO_POSTS, live = false, onLoadMore
     <div className="discovery-layout">
       <div ref={feed} className="discovery-feed" role="region" aria-label="Discovery feed" tabIndex={0}
         onKeyDown={event => {
-          if (event.target !== event.currentTarget) return;
+          if (event.target instanceof HTMLInputElement || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
           if (['ArrowDown', 'PageDown', 'ArrowUp', 'PageUp'].includes(event.key)) {
-            event.preventDefault(); moveTo(Math.max(0, Math.min(posts.length - 1, activeIndex + (['ArrowDown', 'PageDown'].includes(event.key) ? 1 : -1))));
+            event.preventDefault();
+            const direction = ['ArrowDown', 'PageDown'].includes(event.key) ? 1 : -1;
+            const next = activeIndexRef.current + direction;
+            if (next >= 0 && next < posts.length) {
+              event.currentTarget.focus({ preventScroll: true });
+              moveTo(next);
+            }
           }
         }}>
         {posts.map((post, index) => {
@@ -178,18 +197,18 @@ export default function Discovery({ posts = DEMO_POSTS, live = false, onLoadMore
           const remixReason = user?.role === 'investor' ? 'Remix is for artists' : post.original ? 'Remixes of remixes are unavailable' : !post.remixAllowed ? 'Remix not permitted by author' : !live ? 'Remix is unavailable for demo publications' : '';
           const remixDisabled = !!remixReason;
           return <article ref={element => { cards.current[index] = element; }} key={post.id} data-index={index} data-active={index === activeIndex} aria-label={`${post.title} by ${post.author}`} className={`discovery-post discovery-tone-${post.tone}`} inert={index !== activeIndex}>
-            <div className="discovery-post-top"><span>{post.media.kind === 'video' ? 'video' : 'audio'} / {post.genre}</span><span>{index + 1} / {posts.length}</span></div>
-            <div className="discovery-post-body">
-              <DiscoveryMedia post={post} active={index === activeIndex} nearby={Math.abs(index - activeIndex) <= 1} blocked={!!panel} waveformAccess={live && user?.role === 'artist' && post.remixAllowed && !post.original} />
+            <div className="discovery-post-top"><span>{!live ? 'demo · ' : ''}{post.media.kind === 'video' ? 'video' : 'audio'} / {post.genre}</span><span>{index + 1} / {posts.length}</span></div>
+            <DiscoveryMedia key={post.media.src} post={post} active={index === activeIndex} nearby={Math.abs(index - activeIndex) <= 1} blocked={!!panel} waveformAccess={live && user?.role === 'artist' && post.remixAllowed && !post.original} info={
               <DiscoveryPostInfo>
-              <h2 title={post.title}>{post.title}</h2>
-              <div className="discovery-author"><span className="discovery-avatar" aria-hidden="true">{post.initials}</span>{post.artistId ? <Link href={`/artist/${post.artistId}`}><strong>{post.author}</strong></Link> : <strong>{post.author}</strong>}<span>{live ? 'artist' : 'demo artist'}</span></div>
-              <button className="discovery-caption" onClick={() => showPanel('description', post)} aria-label={`Read description of ${post.title}`}>{post.description}</button>
-              {post.original && (live ? post.original.available ? <Link className="discovery-attribution" href={`/discovery?post=${post.original.postId}`}><GitBranch size={13} />Remix of {post.original.title} · {post.original.author}<ArrowUpRight size={13} /></Link> : <p className="discovery-attribution">Remix of {post.original.title} · {post.original.author} · original unavailable</p> : <button className="discovery-attribution" onClick={() => { moveTo(posts.findIndex(item => item.id === post.original?.postId)); feed.current?.focus({ preventScroll: true }); }}><GitBranch size={13} />Remix of {post.original.title} · {post.original.author}<ArrowUpRight size={13} /></button>)}
-              {post.project && <button className="discovery-project-link" onClick={() => showPanel('project', post)}><span><small>{post.project.offers.length ? 'seeking collaborators' : 'linked project'}</small><strong>{post.project.title}</strong></span><span>view project <ArrowUpRight size={16} /></span></button>}
+                {post.media.kind === 'audio' && <p className="discovery-release">{post.genre}</p>}
+                <h2 title={post.title}>{post.title}</h2>
+                <div className="discovery-author"><span className="discovery-avatar" aria-hidden="true">{post.initials}</span>{post.artistId ? <Link href={`/artist/${post.artistId}`}><strong>{post.author}</strong></Link> : <strong>{post.author}</strong>}<span>{live ? 'artist' : 'demo artist'}</span></div>
+                <button className="discovery-caption" onClick={() => showPanel('description', post)} aria-label={`Read description of ${post.title}`}>{post.description}</button>
+                {post.original && (live ? post.original.available ? <Link className="discovery-attribution" href={`/discovery?post=${post.original.postId}`}><GitBranch size={13} />Remix of {post.original.title} · {post.original.author}<ArrowUpRight size={13} /></Link> : <p className="discovery-attribution">Remix of {post.original.title} · {post.original.author} · original unavailable</p> : <button className="discovery-attribution" onClick={() => { moveTo(posts.findIndex(item => item.id === post.original?.postId)); feed.current?.focus({ preventScroll: true }); }}><GitBranch size={13} />Remix of {post.original.title} · {post.original.author}<ArrowUpRight size={13} /></button>)}
+                {post.project && <button className="discovery-project-link" onClick={() => showPanel('project', post)}><span><small>{post.project.offers.length ? 'seeking collaborators' : 'linked project'}</small><strong>{post.project.title}</strong></span><span>view project <ArrowUpRight size={16} /></span></button>}
               </DiscoveryPostInfo>
-            </div>
-              <DiscoveryActionRail title={post.title} reason={remixReason}>
+            } />
+              <DiscoveryActionRail title={post.title} reason={remixReason} artwork={live && post.media.kind === 'video' && <DiscoveryProjectArtwork post={post} onNavigate={() => feed.current?.querySelectorAll<HTMLMediaElement>('video,audio').forEach(media => media.pause())} />}>
                 <Action label="Star" disabled={pending === post.id} pressed={current.starred} icon={<Star size={21} fill={current.starred ? 'currentColor' : 'none'} />} detail={live ? post.stars : post.stars + Number(current.starred)} onClick={() => toggle(post, 'starred')} />
                 <Action label="Comments" icon={<MessageCircle size={21} />} detail={live ? post.social?.comments ?? 0 : post.comments.length + (activity[post.id]?.comments.length ?? 0)} onClick={() => showPanel('comments', post)} />
                 <Action label="Save" disabled={pending === post.id} pressed={current.saved} icon={<Bookmark size={21} fill={current.saved ? 'currentColor' : 'none'} />} detail={current.saved ? 'saved' : 'save'} onClick={() => toggle(post, 'saved')} />
@@ -200,14 +219,16 @@ export default function Discovery({ posts = DEMO_POSTS, live = false, onLoadMore
         })}
       </div>
       <nav className="discovery-pagination" aria-label="Feed controls">
-        <span>explore<br />a little further</span><ArrowDown size={18} aria-hidden="true" />
-        <button aria-label="Previous post" disabled={activeIndex === 0} onClick={() => moveTo(activeIndex - 1)}><ChevronLeft size={20} /></button>
+        <button aria-label="Previous post" disabled={activeIndex === 0} onClick={() => moveTo(activeIndex - 1)}><ChevronUp size={20} /></button>
         <span aria-live="polite">{activeIndex + 1} / {posts.length}</span>
-        <button aria-label="Next post" disabled={activeIndex === posts.length - 1} onClick={() => moveTo(activeIndex + 1)}><ChevronRight size={20} /></button>
+        <button aria-label="Next post" disabled={activeIndex === posts.length - 1} onClick={() => moveTo(activeIndex + 1)}><ChevronDown size={20} /></button>
       </nav>
+      {live && (loadError || activeIndex === posts.length - 1) && <div className="discovery-feed-state" data-error={!!loadError} aria-live="polite">
+        {loadError ? <><span role="alert">{loadError}</span><button onClick={onRetry} disabled={fetching}>Retry loading</button></> : loadingMore ? <span>Loading more…</span> : onLoadMore ? <button onClick={onLoadMore} disabled={fetching}>Load more</button> : <a href="/discovery">Refresh feed</a>}
+      </div>}
     </div>
-    <div className="discovery-preview-note">{live ? <>Stars + recency · new artist discovery slots · <a className="underline" href="/discovery">Refresh feed</a></> : 'Sample content · interactions reset on reload'}{onLoadMore && <button className="underline ml-3" onClick={onLoadMore} disabled={loadingMore}>{loadingMore ? 'Loading…' : 'Load more'}</button>}</div>
-    <span className="sr-only" role="status">{announcement}</span>{interactionError && <p role="alert" className="px-4 py-2 text-sm">{interactionError}</p>}
+    <div className="discovery-preview-note" data-has-more={!!onLoadMore}><span>{live ? <>Stars + recency · new artist discovery slots · <a className="underline" href="/discovery">Refresh feed</a></> : 'Sample content · interactions reset on reload'}</span>{onLoadMore && <button className="underline ml-3" onClick={onLoadMore} disabled={loadingMore}>{loadingMore ? 'Loading…' : 'Load more'}</button>}</div>
+    <span className="sr-only" role="status">{announcement}</span>{interactionError && <p role="alert" className="discovery-interaction-error px-4 py-2 text-sm">{interactionError}</p>}
     <Dialog.Root open={!!panel} onOpenChange={open => { if (!open) setPanel(null); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="discovery-panel-overlay" />
@@ -215,7 +236,7 @@ export default function Discovery({ posts = DEMO_POSTS, live = false, onLoadMore
           <div className="discovery-panel-heading"><p className="discovery-eyebrow">{live ? 'discovery' : 'discovery / demo'}</p><Dialog.Title>{panelTitle}</Dialog.Title><Dialog.Description>{panelPost?.title} · {panelPost?.author}</Dialog.Description></div>
           <Dialog.Close className="discovery-panel-close" aria-label="Close panel"><X size={20} /></Dialog.Close>
           {panelPost && panel?.kind === 'description' && <p className="whitespace-pre-wrap break-words">{panelPost.description}</p>}
-          {panelPost && panel?.kind === 'project' && panelPost.project && <ProjectPanel project={panelPost.project} live={live} projectId={panelPost.projectId} ownerId={panelPost.artistId} />}
+          {panelPost && panel?.kind === 'project' && panelPost.project && <ProjectPanel project={panelPost.project} live={live} projectId={panelPost.projectId} workId={panelPost.workId} ownerId={panelPost.artistId} />}
           {panelPost && panel?.kind === 'comments' && live && <LiveComments key={panelPost.id} postId={Number(panelPost.id.slice(5))} />}
           {panelPost && panel?.kind === 'comments' && !live && <>
             <div className="discovery-comments" aria-label="Comments">

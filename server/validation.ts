@@ -1,3 +1,6 @@
+import { professionalIdentityUpdate, validateArtistProfileKeys } from '../lib/local/src/artist-identity.js';
+import type { ArtistProfileInput } from '../lib/local/src/store.js';
+
 export class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
@@ -27,14 +30,12 @@ export function credentials(value: unknown, registration = false) {
 }
 export function profile(value: unknown) {
   const data = object(value);
-  return {
-    name: text(data.name, 'Name', 120, 2),
-    genre: data.genre == null ? null : text(data.genre, 'Genre', 120),
-    basedIn: data.basedIn == null ? null : text(data.basedIn, 'Location', 120),
-    recordLabel: data.recordLabel == null ? null : text(data.recordLabel, 'Label', 120),
-    bio: data.bio == null ? null : text(data.bio, 'Bio', 4000),
-    picture: data.picture == null ? null : text(data.picture, 'Picture', 1_000_000),
-  };
+  validateArtistProfileKeys(data);
+  const result: ArtistProfileInput = { name: text(data.name, 'Name', 120, 2), ...professionalIdentityUpdate(data) };
+  for (const [key, max] of [['genre', 120], ['basedIn', 120], ['recordLabel', 120], ['bio', 4000], ['picture', 1_000_000]] as const) {
+    if (data[key] !== undefined) result[key] = data[key] === null ? null : text(data[key], key, max);
+  }
+  return result;
 }
 export function project(value: unknown) {
   const data = object(value);

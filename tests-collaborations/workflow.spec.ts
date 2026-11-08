@@ -1,3 +1,4 @@
+import { legacyConversation } from './legacy-fixture';
 import { test, expect, type Page } from '@playwright/test';
 import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
@@ -26,7 +27,7 @@ async function work(page: Page, delivery=false) {
   await expect(page.getByRole('form',{name:delivery?'Delivery form':'Proposal form'})).toHaveCount(0);
 }
 
-test('artists create offers in Discovery, discuss, submit, revise, accept, deliver and finish privately',async ({page,browser},info)=>{
+test('historical work: artists create offers in Discovery, discuss, submit, revise, accept, deliver and finish privately',async ({page,browser},info)=>{
   test.setTimeout(150_000);
   const live = expect.configure({ timeout: 15_000 });
   const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
@@ -58,8 +59,9 @@ test('artists create offers in Discovery, discuss, submit, revise, accept, deliv
     await expect(artist.getByRole('dialog').getByRole('link',{name:'Log in to collaborate'})).toHaveCount(2);
     await artist.screenshot({path:info.outputPath('discovery-offers.png')});
     await rpc(artist,'register',{name:'Guest Vocalist',role:'artist',email:`vocalist-${tag}@example.invalid`,password:'preview123'});
+    const historicalOffers=await(await page.request.get(`/api/projects/${project.id}/offers`)).json();await legacyConversation(artist,historicalOffers.find((o:{need:string})=>o.need==='Verse').id);
     await artist.goto(`/project/${project.id}`);await artist.getByRole('article',{name:'Verse offer'}).getByRole('button',{name:'Contact artist'}).click();
-    await expect(artist).toHaveURL(/\/collaborations\/\d+$/);const workspace=new URL(artist.url()).pathname;
+    await expect(artist).toHaveURL(/\/messages\/collaboration\/\d+$/);const workspace=new URL(artist.url()).pathname;
     await artist.getByLabel('Message',{exact:true}).fill('May I send Spanish vocals?');await artist.getByRole('button',{name:'Send message'}).click();
     await expect(artist.getByRole('region',{name:'Private conversation'})).toContainText('May I send Spanish vocals?');
     await page.goto('/profile');await page.getByRole('link',{name:/Collaborations Review proposals/}).click();await page.getByRole('link',{name:/Midnight sessions · Verse/}).click();
@@ -80,14 +82,14 @@ test('artists create offers in Discovery, discuss, submit, revise, accept, deliv
     await page.getByRole('button',{name:'Mark completed',exact:true}).click();await expect(page.getByText('This collaboration is completed.',{exact:true})).toBeVisible();
     await artist.bringToFront();await artist.getByLabel('Message',{exact:true}).fill('Thank you for the collaboration!');await artist.getByRole('button',{name:'Send message'}).click();
     await page.bringToFront();await live(page.getByRole('region',{name:'Private conversation'})).toContainText('Thank you for the collaboration!');
-    await artist.goto('/collaborations');await artist.getByRole('button',{name:'Sent',exact:true}).click();await expect(artist.getByRole('link',{name:/Midnight sessions · Verse/})).toContainText('completed');
+    await artist.goto('/collaborations');await expect(artist.getByRole('link',{name:/Midnight sessions · Verse/})).toContainText('completed');
     await rpc(artist,'logout');await artist.goto(workspace);await expect(artist.getByText('Log in as an artist to view your collaborations.',{exact:true})).toBeVisible();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth+1)).toBe(true);
     expect(errors).toEqual([]);
   } finally {await applicantContext.close();}
 });
 
-test('both sides can use direct applications, withdrawal, decline and closure without losing their conversation', async ({ page, browser }, info) => {
+test('historical work: both sides can use direct applications, withdrawal, decline and closure without losing their conversation', async ({ page, browser }, info) => {
   test.setTimeout(90_000);
   const live = expect.configure({ timeout: 15_000 }), tag = `${info.project.name}-${Date.now()}`;
   await rpc(page, 'register', { name: 'Review Owner', role: 'artist', email: `review-${tag}@example.invalid`, password: 'preview123' });
@@ -100,6 +102,7 @@ test('both sides can use direct applications, withdrawal, decline and closure wi
   try {
     const artist = await context.newPage();
     await rpc(artist, 'register', { name: 'Review Applicant', role: 'artist', email: `review-applicant-${tag}@example.invalid`, password: 'preview123' });
+    const historicalOffers=await(await page.request.get(`/api/projects/${project.id}/offers`)).json();for(const o of historicalOffers)await legacyConversation(artist,o.id);
     await artist.goto(`/project/${project.id}`);
     await artist.getByRole('article', { name: 'Mix offer' }).getByRole('button', { name: 'Submit proposal', exact: true }).click();
     await expect(artist.getByRole('form', { name: 'Proposal form' })).toBeVisible();
@@ -110,7 +113,7 @@ test('both sides can use direct applications, withdrawal, decline and closure wi
     await page.goto(first); await expect(page.getByText('This collaboration is withdrawn.', { exact: true })).toBeVisible();
     await artist.goto(`/project/${project.id}`);
     await artist.getByRole('article', { name: 'Master offer' }).getByRole('button', { name: 'Submit proposal', exact: true }).click();
-    await expect(artist).toHaveURL(/\/collaborations\/\d+$/);
+    await expect(artist).toHaveURL(/\/messages\/collaboration\/\d+$/);
     const second = new URL(artist.url()).pathname;
     await work(artist);
     await page.goto(second); page.once('dialog', dialog => dialog.accept()); await page.getByRole('button', { name: 'Decline proposal', exact: true }).click();
@@ -125,7 +128,7 @@ test('both sides can use direct applications, withdrawal, decline and closure wi
     await expect(page.getByRole('article', { name: 'Mix offer' }).getByText('closed', { exact: true })).toBeVisible();
     await artist.goto(`/project/${project.id}`); await expect(artist.getByRole('article', { name: 'Mix offer' })).toHaveCount(0);
     await artist.goto(first); await expect(artist.getByRole('region', { name: 'Private conversation' })).toBeVisible();
-    await artist.goto('/collaborations'); await artist.getByRole('button', { name: 'Sent', exact: true }).click();
+    await artist.goto('/collaborations');
     await expect(artist.getByRole('link', { name: /Review paths · Mix/ })).toContainText('withdrawn');
     await expect(artist.getByRole('link', { name: /Review paths · Master/ })).toContainText('rejected');
     await page.goto('/collaborations');

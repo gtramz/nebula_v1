@@ -1,3 +1,4 @@
+import { ProjectSongs } from '@/features/songs';
 import { ReturnLink } from '@/components/antiq/workspace';
 import { ProjectOffers } from '@/features/collaborations';
 import { useState } from "react";
@@ -109,7 +110,9 @@ export default function ProjectDetail() {
               </section>
             )}
 
-            <ProjectOffers projectId={project.id} ownerId={project.artistId} />
+            {user?.role === 'artist' && user.artistId !== project.artistId && <Link className="inline-flex min-h-11 items-center underline text-sm" href={`/messages/new/${project.artistId}?project=${project.id}`}>Message artist about this project</Link>}
+            <ProjectSongs projectId={project.id} category={project.category} status={project.status} renderOffers={workId=><ProjectOffers projectId={project.id} ownerId={project.artistId} scopeWorkId={workId}/>}/>
+            <ProjectOffers projectId={project.id} ownerId={project.artistId} scopeWorkId={null} />
 
             {(backers.length > 0 || supporters.length > 0) && (
               <section aria-label="Project community" className="space-y-6 pt-8 border-t border-white/10">

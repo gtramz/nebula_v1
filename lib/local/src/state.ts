@@ -1,5 +1,6 @@
-import type { Artist, Investment, ProjectInput, PublicVisibility, SessionUserRole } from './types.js';
+import type { Investment, ProjectInput, PublicVisibility, SessionUserRole } from './types.js';
 import { isMoney } from './money.js';
+import { validStoredArtistPreferences, validStoredProfessionalIdentity, validStoredOnboarding, type ArtistPreferences, type StoredArtist, type ArtistOnboarding } from './artist-identity.js';
 
 type Account = {
   id: number;
@@ -10,6 +11,8 @@ type Account = {
   passwordDigest: string;
   createdAt?: string;
   lastLoginAt?: string;
+  artistPreferences?: ArtistPreferences;
+  artistOnboarding?: ArtistOnboarding;
 };
 export type StoredProject = ProjectInput & { id: number; artistId: number; createdAt: string; archivedAt?: string };
 export type StoredInvestment = Investment & { investorId: number };
@@ -21,7 +24,7 @@ export type State = {
   nextId: number;
   currentAccountId: number | null;
   accounts: Account[];
-  artists: Artist[];
+  artists: StoredArtist[];
   projects: StoredProject[];
   investments: StoredInvestment[];
   supports: { projectId: number; artistId: number; createdAt: string }[];
@@ -55,9 +58,11 @@ export function parseState(raw: string): State {
     && id(value.nextId) && (value.currentAccountId === null || id(value.currentAccountId))
     && arrayOf(value.accounts, item => record(item) && id(item.id) && (item.role === 'artist' || item.role === 'investor')
       && string(item.name) && string(item.email) && string(item.salt) && string(item.passwordDigest)
-      && (item.createdAt === undefined || date(item.createdAt)) && (item.lastLoginAt === undefined || date(item.lastLoginAt)))
+      && (item.createdAt === undefined || date(item.createdAt)) && (item.lastLoginAt === undefined || date(item.lastLoginAt))
+      && (item.artistPreferences === undefined || (item.role === 'artist' && validStoredArtistPreferences(item.artistPreferences)))
+      && (item.artistOnboarding === undefined || (item.role === 'artist' && validStoredOnboarding(item.artistOnboarding))))
     && arrayOf(value.artists, item => record(item) && id(item.id) && string(item.name) && image(item.picture)
-      && optionalStrings(item, ['username', 'genre', 'basedIn', 'bio', 'recordLabel']))
+      && optionalStrings(item, ['username', 'genre', 'basedIn', 'bio', 'recordLabel']) && validStoredProfessionalIdentity(item))
     && arrayOf(value.projects, item => record(item) && id(item.id) && id(item.artistId) && string(item.title)
       && string(item.category) && isMoney(item.goalAmount, 0.01, 100_000_000) && item.currency === 'USD'
       && date(item.createdAt) && (item.archivedAt === undefined || date(item.archivedAt))

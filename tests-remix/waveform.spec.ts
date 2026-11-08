@@ -23,6 +23,12 @@ test('single duration control, fixed handles, zoom and overview stay consistent'
  await expect(page.getByRole('group',{name:'Clip duration',exact:true}).getByRole('button')).toHaveCount(1);
  await duration.click();await expect(duration).toContainText('60s');await expect(start).toHaveAttribute('aria-valuenow','10');await expect(end).toHaveAttribute('aria-valuenow','70');
  await duration.click();await expect(duration).toContainText('15s');await expect(start).toHaveAttribute('aria-valuenow','10');await expect(end).toHaveAttribute('aria-valuenow','25');
+ const originalViewport=page.viewportSize()!;await page.setViewportSize({width:320,height:700});
+ await page.getByRole('button',{name:'Zoom out',exact:true}).click();
+ const leftTarget=(await start.boundingBox())!,rightTarget=(await end.boundingBox())!;
+ expect(leftTarget.width).toBeGreaterThanOrEqual(44);expect(rightTarget.width).toBeGreaterThanOrEqual(44);
+ expect(rightTarget.x).toBeGreaterThanOrEqual(leftTarget.x+leftTarget.width-0.5);
+ await page.setViewportSize(originalViewport);
  await end.press('Shift+ArrowLeft');await expect(start).toHaveAttribute('aria-valuenow','9');await expect(end).toHaveAttribute('aria-valuenow','24');
  await duration.click();await expect(duration).toContainText('30s');
  await page.getByRole('button',{name:'Fit selection',exact:true}).click();await page.getByRole('button',{name:'Zoom out',exact:true}).click();

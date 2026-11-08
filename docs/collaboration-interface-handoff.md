@@ -1,5 +1,7 @@
 # Collaboration workspace consistency (UX-01)
 
+> Historical phase snapshot. For current status, superseding features and consolidated verification, see [Manuel release handoff](manuel-release-handoff.md). Earlier deferred items may now be implemented; the current operation inventory is [integration-contracts.md](integration-contracts.md).
+
 Scope: `/collaborations`, `/collaborations/:id` and their offer/proposal controls.
 The integrated local API remains the review backend. No endpoints, migrations,
 permissions, payment flows or dependencies are added. USD remains the only fee

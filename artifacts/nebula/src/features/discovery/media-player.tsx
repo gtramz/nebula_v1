@@ -1,8 +1,11 @@
-import { memo, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiRequest, type Waveform } from '@nebula/local';
 import { Disc3, Pause, Play, Volume2, VolumeX } from 'lucide-react';
+import { Link } from 'wouter';
 import { useNotificationsOpen } from '@/features/notifications';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { DiscoveryArtwork } from './cover-artwork';
 import type { DemoPost } from './demo-posts';
 
 const time = (seconds: number) => `${Math.floor(seconds / 60)}:${Math.floor(seconds % 60).toString().padStart(2, '0')}`;
@@ -10,14 +13,19 @@ const time = (seconds: number) => `${Math.floor(seconds / 60)}:${Math.floor(seco
 export function VideoDiscoveryPlayer({ children }: { children: ReactNode }) {
   return <div className="discovery-video-stage">{children}</div>;
 }
-export function AudioDiscoveryCard({ post }: { post: DemoPost }) {
-  const [failed, setFailed] = useState(false);
-  return <div className="discovery-audio-stage">
-    <div className="discovery-cover">
-      {post.coverUrl && !failed ? <img src={post.coverUrl} loading="lazy" decoding="async" alt={`${post.title} cover artwork`} onError={() => setFailed(true)} />
-        : <div className="discovery-cover-fallback" aria-label="No cover artwork"><Disc3 strokeWidth={.6} /><span>{post.initials}</span><small>NEBULA / AUDIO</small></div>}
+export function AudioDiscoveryCard({ post, info, controls, onProjectNavigate }: { post: DemoPost; info: ReactNode; controls: ReactNode; onProjectNavigate?: () => void }) {
+  const isMobile = useIsMobile();
+  const linkedProject = isMobile && post.project && Number.isInteger(post.projectId) && !!post.projectId && post.projectId > 0;
+  const artwork = <DiscoveryArtwork post={post} useProjectCover={isMobile} />;
+  return <>
+    <div className="discovery-audio-stage">
+      {linkedProject
+        ? <Link className="discovery-cover discovery-cover-link" href={`/project/${post.projectId}${post.workId ? `?song=${post.workId}` : ''}`} aria-label={`View project: ${post.project!.title}`} onClick={onProjectNavigate}>{artwork}</Link>
+        : <div className="discovery-cover">{artwork}</div>}
     </div>
-  </div>;
+    {info}
+    {controls}
+  </>;
 }
 
 function WaveformProgress({ data, progress }: { data: Waveform; progress: number }) {
@@ -41,7 +49,7 @@ function WaveformProgress({ data, progress }: { data: Waveform; progress: number
   </svg>;
 }
 
-export const DiscoveryMedia = memo(function DiscoveryMedia({ post, active, nearby, blocked, waveformAccess }: { post: DemoPost; active: boolean; nearby: boolean; blocked: boolean; waveformAccess: boolean }) {
+export const DiscoveryMedia = memo(function DiscoveryMedia({ post, active, nearby, blocked, waveformAccess, info }: { post: DemoPost; active: boolean; nearby: boolean; blocked: boolean; waveformAccess: boolean; info: ReactNode }) {
   const notificationsOpen = useNotificationsOpen();
   blocked = blocked || notificationsOpen;
   const media = useRef<HTMLMediaElement | null>(null), wasActive = useRef(false);
@@ -54,7 +62,7 @@ export const DiscoveryMedia = memo(function DiscoveryMedia({ post, active, nearb
     queryFn: ({ signal }) => apiRequest<Waveform>(`/api/publications/${post.id.slice(5)}/waveform`, { signal }),
     enabled: active && audio && waveformAccess, retry: false, refetchOnWindowFocus: false, staleTime: 60_000, gcTime: 60_000 });
   const wave = waveformAccess ? waveform.data : undefined;
-  useEffect(() => {
+  useLayoutEffect(() => {
     allowed.current = active && !blocked;
     const element = media.current; if (!element) return;
     if (!active || blocked) element.pause();
@@ -88,19 +96,21 @@ export const DiscoveryMedia = memo(function DiscoveryMedia({ post, active, nearb
     onDurationChange: () => { const value = media.current?.duration ?? 0; if (Number.isFinite(value) && value > 0) setDuration(value); },
     onError: () => { setFailed(true); setPlaying(false); setBuffering(false); },
   };
-  return <div className={`discovery-media ${audio ? 'is-audio' : 'is-video'}`}>
-    {audio ? <><AudioDiscoveryCard post={post} />{nearby && <audio {...mediaProps} ref={element => { media.current = element; }} aria-label={`${post.title} audio`} />}</>
-      : <VideoDiscoveryPlayer>{nearby ? <video {...mediaProps} ref={element => { media.current = element; }} poster={post.coverUrl ?? undefined} playsInline className="discovery-video" aria-label={`${post.title} video`} /> : post.coverUrl ? <img src={post.coverUrl} alt="" loading="lazy" className="discovery-video" /> : <Disc3 aria-hidden="true" size={48} />}</VideoDiscoveryPlayer>}
+  const played = duration ? Math.min(1, progress / duration) : 0;
+  const controls =
     <div className="discovery-media-controls">
-      <div className={`discovery-seek ${wave ? 'has-waveform' : ''}`}>
-        {wave && <WaveformProgress data={wave} progress={duration ? Math.min(1, progress / duration) : 0} />}
+      <div className={`discovery-seek ${wave ? 'has-waveform' : ''}`} style={{ '--played': `${played * 100}%` } as CSSProperties}>
+        {wave && <WaveformProgress data={wave} progress={played} />}
         <input type="range" min={0} max={duration || 1} step={.1} value={Math.min(progress, duration || 1)} aria-label={`Seek ${post.title}`} aria-valuetext={`${time(progress)} of ${time(duration)}`} disabled={!duration || failed || !active || blocked} onChange={event => seek(Number(event.target.value))} />
       </div>
       <MediaPlaybackControls title={post.title} playing={playing} muted={muted} volume={volume} progress={progress} duration={duration} disabled={failed || !active || blocked} onToggle={toggle} onMute={() => { if (muted && volume === 0) { if (media.current) media.current.volume = 1; setVolume(1); } setMuted(value => !value); }} onVolume={value => { if (media.current) media.current.volume = value; setVolume(value); setMuted(value === 0); }} />
       <div className="discovery-media-status" role="status">
         {failed ? <><span>Media unavailable.</span><button onClick={() => { setFailed(false); setNotice(''); media.current?.load(); }}>Retry playback</button></> : buffering ? 'Buffering…' : notice || (audio && waveformAccess && waveform.isFetching ? 'Loading waveform…' : audio && !wave ? waveformAccess && waveform.isError ? 'Waveform unavailable · audio timeline' : 'Audio timeline' : wave && !wave.hasAudio ? 'No audio track' : '')}
       </div>
-    </div>
+    </div>;
+  return <div className={`discovery-media ${audio ? 'is-audio' : 'is-video'}`}>
+    {audio ? <><AudioDiscoveryCard post={post} info={info} controls={controls} onProjectNavigate={() => media.current?.pause()} />{nearby && <audio {...mediaProps} ref={element => { media.current = element; }} aria-label={`${post.title} audio`} />}</>
+      : <><VideoDiscoveryPlayer>{nearby ? <video {...mediaProps} ref={element => { media.current = element; }} poster={post.coverUrl ?? undefined} playsInline className="discovery-video" aria-label={`${post.title} video`} /> : post.coverUrl ? <img src={post.coverUrl} alt="" loading="lazy" className="discovery-video" /> : <Disc3 aria-hidden="true" size={48} />}</VideoDiscoveryPlayer>{controls}{info}</>}
   </div>;
 });
 

@@ -1,3 +1,4 @@
+import { SongSelector } from '@/features/songs';
 import { useLeaveGuard } from '@/components/shell/navigation-guard';
 import { ReturnLink } from '@/components/antiq/workspace';
 import { useEffect, useRef, useState } from 'react';
@@ -67,6 +68,8 @@ function PublicationForm({ existing }: { existing?: Publication }) {
   const [title, setTitle] = useState(existing?.title ?? '');
   const [description, setDescription] = useState(existing?.description ?? '');
   const [allowRemix, setAllowRemix] = useState(existing?.allowRemix ?? false);
+  const [workId,setWorkId]=useState<number|null>(existing?.workId??null);
+  const [songNotice,setSongNotice]=useState('');
   const [projectId, setProjectId] = useState(String(existing?.projectId ?? ''));
   const [media, setMedia] = useState<UploadedMedia | null>(existing?.media ?? null);
   const [cover, setCover] = useState<{ id: string; url: string } | null>(existing?.coverId ? { id: existing.coverId, url: existing.coverUrl! } : null);
@@ -79,7 +82,7 @@ function PublicationForm({ existing }: { existing?: Publication }) {
   useEffect(() => () => { alive.current = false; abort.current?.abort(); }, []);
   const save = useMutation({ mutationFn: (status: PublicationInput['status']) => {
     if (!media) throw new Error('Upload audio or video first.');
-    return savePublication({ title, description, mediaId: media.id, coverId: cover?.id ?? null, allowRemix, projectId: projectId ? Number(projectId) : null, status }, existing);
+    return savePublication({ title, description, mediaId: media.id, coverId: cover?.id ?? null, allowRemix, projectId: projectId ? Number(projectId) : null, workId, status }, existing);
   }, onSuccess: async () => {
     setDirty(false);
     await client.invalidateQueries({ queryKey: ['publications'] }); await client.invalidateQueries({ queryKey: ['publication'] }); await client.invalidateQueries({ queryKey: ['unused-uploads', user?.artistId] }); allowDeparture(); navigate('/studio');
@@ -111,7 +114,8 @@ function PublicationForm({ existing }: { existing?: Publication }) {
         <label className="block space-y-2"><span>Description</span><textarea className={field} value={description} onChange={event => setDescription(event.target.value)} maxLength={2000} rows={4} /></label>
         <label className="block space-y-2"><span>Cover image (optional)</span><input type="file" className={field} accept="image/png,image/jpeg,image/webp" onChange={event => { void selectFile(event.target.files?.[0], true); event.target.value = ''; }} /><span className="block text-xs text-muted">PNG, JPEG or WebP · up to 5 MB</span></label>
         {cover && <div className="flex gap-4 items-center"><img src={cover.url} alt="Publication cover preview" className="h-32 w-32 object-cover" /><button type="button" className={button} onClick={() => { setCover(null); setDirty(true); }}>Remove cover</button></div>}
-        <label className="block space-y-2"><span>Link a project (optional)</span><select className={field} value={projectId} onChange={event => setProjectId(event.target.value)}><option value="">Independent publication</option>{projects.data?.filter(project => project.artistId === user?.artistId).map(project => <option key={project.id} value={project.id}>{project.title}{project.status === 'draft' ? ' (draft — publish project first)' : ''}</option>)}</select></label>
+        <label className="block space-y-2"><span>Link a project (optional)</span><select className={field} value={projectId} onChange={event => {setProjectId(event.target.value);if(workId){setWorkId(null);setSongNotice('Song selection cleared because the project changed. Choose a song from the new project.');}}}><option value="">Independent publication</option>{projects.data?.filter(project => project.artistId === user?.artistId).map(project => <option key={project.id} value={project.id}>{project.title}{project.status === 'draft' ? ' (draft — publish project first)' : ''}</option>)}</select></label>
+        {projectId && <SongSelector projectId={Number(projectId)} value={workId} onChange={id=>{setWorkId(id);setSongNotice('');}}/>}{songNotice&&<p role="status">{songNotice}</p>}
         {projects.error && <p role="alert">Could not load your projects. <button type="button" onClick={() => projects.refetch()}>Retry</button></p>}
         <div className="border border-border p-5 space-y-3"><label className="flex gap-3 items-center"><input type="checkbox" disabled={!!existing?.remix} checked={allowRemix} onChange={event => setAllowRemix(event.target.checked)} />Allow other artists to remix this publication</label><p className="text-xs text-muted">Audio and video originals can be used in the remix studio. Remixes of remixes are not supported. Permission does not grant collaboration approval or royalties. Disabling it blocks new remixes and updates to private remix drafts; existing published remixes remain available.</p></div>
       </fieldset>

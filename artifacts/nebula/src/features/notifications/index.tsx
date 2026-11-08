@@ -4,12 +4,13 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { Bell, X } from 'lucide-react';
 import { Link, useLocation } from 'wouter';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiRequest, isServerMode, type NotificationKind, type NotificationPage, type NotificationSummary } from '@nebula/local';
+import { apiRequest, isServerMode, notificationHref, type ConversationNotificationKind, type CollaborationNotificationKind, type NotificationPage, type NotificationSummary } from '@nebula/local';
 import { useAuth } from '@/context/AuthContext';
 import './notifications.css';
 
 const button = 'border border-border px-4 py-3 text-sm hover:border-accent disabled:opacity-40';
-const labels: Record<NotificationKind, string> = {
+const labels: Record<CollaborationNotificationKind | ConversationNotificationKind, string> = {
+  'conversation.requested':'Sent you a message request', 'conversation.accepted':'Accepted your message request', 'conversation.rejected':'Declined your message request', 'conversation.message':'Sent you a message',
   contact: 'Started a collaboration conversation', message: 'Sent you a message', submit: 'Submitted a proposal',
   request_changes: 'Requested changes to your work', accept: 'Accepted your proposal', reject: 'Declined your proposal',
   withdraw: 'Withdrew their proposal', deliver: 'Sent a delivery', complete: 'Marked your collaboration completed',
@@ -64,11 +65,17 @@ function NotificationCenter({ artistId, children }: { artistId?: number; childre
       <Dialog.Portal><Dialog.Overlay className="notifications-overlay" />
         <Dialog.Content className="notifications-panel" onCloseAutoFocus={event => {
           event.preventDefault();
-          const fallback = [...document.querySelectorAll<HTMLElement>('[data-notification-bell]')].find(element => element.getClientRects().length);
+          // Discovery hides its mobile header. A panel opened on desktop can still
+          // be closed after resizing, when its former bell is no longer visible.
+          const fallback = [
+            ...document.querySelectorAll<HTMLElement>('[data-notification-bell]'),
+            ...document.querySelectorAll<HTMLElement>('.discovery-feed'),
+            ...document.querySelectorAll<HTMLElement>('#primary-navigation [aria-current=page]'),
+          ].find(element => element.getClientRects().length);
           const target = trigger.current?.isConnected && trigger.current.getClientRects().length ? trigger.current : fallback;
           target?.focus({ preventScroll: true });
         }}>
-          <header className="notifications-heading"><p className="voice text-xs text-accent">STAY IN THE LOOP</p><Dialog.Title className="text-3xl font-bold">Notifications</Dialog.Title><Dialog.Description className="text-sm text-muted">Updates from your collaborations.</Dialog.Description></header>
+          <header className="notifications-heading"><p className="voice text-xs text-accent">STAY IN THE LOOP</p><Dialog.Title className="text-3xl font-bold">Notifications</Dialog.Title><Dialog.Description className="text-sm text-muted">Updates from your requests, conversations, collaborations and followers.</Dialog.Description></header>
           <Dialog.Close className="notifications-close" aria-label="Close notifications"><X size={22} aria-hidden="true" /></Dialog.Close>
           {artistId && <NotificationList key={artistId} artistId={artistId} panel />}
         </Dialog.Content>
@@ -92,7 +99,7 @@ export function NotificationsPage() {
   const { user } = useAuth();
   if (!isServerMode()) return <p className="p-8">Notifications require the local server.</p>;
   if (!user) return <div className="p-8 space-y-4"><h1 className="text-3xl font-bold">Notifications</h1><p>Log in as an artist to view your notifications.</p><Link className="underline" href="/login">Log in</Link></div>;
-  if (user.role !== 'artist') return <p className="p-8">Collaboration notifications are available to artist accounts.</p>;
+  if (user.role !== 'artist') return <p className="p-8">Notifications are available to artist accounts.</p>;
   return <NotificationList key={user.artistId} artistId={user.artistId!} />;
 }
 
@@ -107,7 +114,7 @@ function NotificationList({ artistId, panel = false }: { artistId: number; panel
   const first = query.data?.pages[0];
   const items = [...new Map(query.data?.pages.flatMap(page => page.items).map(item => [item.id, item]) ?? []).values()];
 
-  async function markRead(data: { id: number } | { throughId: number }, destination?: number) {
+  async function markRead(data: { id: number } | { throughId: number }, destination?: string) {
     if (request.current) return;
     const abort = new AbortController(); request.current = abort; setPending(true); setReading(true); setError('');
     try {
@@ -116,26 +123,35 @@ function NotificationList({ artistId, panel = false }: { artistId: number; panel
       if (abort.signal.aborted) return;
       client.setQueryData(['notification-summary', artistId], summary);
       await client.invalidateQueries({ queryKey: ['notifications', artistId] });
-      if (destination) { close(); navigate(`/collaborations/${destination}`); }
+      if (abort.signal.aborted) return;
+      if (destination) { close(); navigate(destination); }
     } catch (error) { if (!abort.signal.aborted) setError((error as Error).message); }
     finally { if (!abort.signal.aborted) { request.current = null; setPending(false); setReading(false); } }
   }
   return <section className={panel ? "space-y-6" : "mx-auto w-full max-w-3xl p-6 pb-24 space-y-6"}>
-    {!panel && <ReturnLink href="/collaborations" onClick={close}>Your collaborations</ReturnLink>}
-    <div className="flex flex-wrap items-center justify-between gap-3">{panel ? <Link href="/collaborations" onClick={close} className="inline-flex min-h-11 items-center underline text-sm">Your collaborations</Link> : <div><p className="voice text-xs text-accent">STAY IN THE LOOP</p><h1 className="text-3xl font-bold">Notifications</h1></div>}
+    {!panel && <ReturnLink href="/messages" onClick={close}>Your messages</ReturnLink>}
+    <div className="flex flex-wrap items-center justify-between gap-3">{panel ? <Link href="/messages" onClick={close} className="inline-flex min-h-11 items-center underline text-sm">Your messages</Link> : <div><p className="voice text-xs text-accent">STAY IN THE LOOP</p><h1 className="text-3xl font-bold">Notifications</h1></div>}
       <button className={button} disabled={pending || !first?.unreadCount || !!query.error} onClick={() => first?.latestId && void markRead({ throughId: first.latestId })}>Mark all as read</button></div>
-    {!panel && <p className="text-sm text-muted">Updates from your collaborations. Reading a notification is private; it does not send a read receipt.</p>}
+    {!panel && <p className="text-sm text-muted">Updates from your requests, conversations, collaborations and followers. Reading a notification is private; it does not send a read receipt.</p>}
     {first && <p role="status" className="text-sm text-accent">{first.unreadCount} unread</p>}
     {(error || query.error) && <p role="alert" className="text-sm text-danger">{error || (query.error as Error).message}</p>}
     {query.error && <button className={button} onClick={() => void query.refetch()}>Retry notifications</button>}
     {query.isLoading && <p role="status">Loading notifications…</p>}
-    {!query.isLoading && !query.error && !items.length && <div className="border border-border p-6 space-y-3"><h2 className="text-xl font-semibold">You’re all caught up.</h2><p className="text-muted">New messages, proposals and work updates will appear here.</p></div>}
-    <div className="space-y-3">{items.map(item => <article key={item.id} aria-label={`${labels[item.kind]} · ${item.projectTitle} · ${item.need}`} className={`border p-5 space-y-3 ${item.readAt ? 'border-border' : 'border-accent/60 bg-accent/5'}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-muted"><time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time></p><span className={`text-xs ${item.readAt ? 'text-muted' : 'text-accent'}`}>{item.readAt ? 'Read' : 'Unread'}</span></div>
-      <h2 className="text-lg font-semibold">{labels[item.kind]}</h2><p className="break-words text-sm">{item.actorName} · {item.projectTitle} · {item.need}</p>
-      <div className="flex flex-wrap gap-3"><Link className={button} href={`/collaborations/${item.collaborationId}`} aria-disabled={pending} onClick={event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); if (pending) return; if (item.readAt) { close(); navigate(`/collaborations/${item.collaborationId}`); } else void markRead({ id: item.id }, item.collaborationId); }}>View collaboration</Link>
-        {!item.readAt && <button className="px-2 py-3 text-sm underline disabled:opacity-40" disabled={pending} onClick={() => void markRead({ id: item.id })}>Mark as read</button>}</div>
-    </article>)}</div>
+    {!query.isLoading && !query.error && !items.length && <div className="border border-border p-6 space-y-3"><h2 className="text-xl font-semibold">You’re all caught up.</h2><p className="text-muted">New followers, requests, messages, proposals and work updates will appear here.</p></div>}
+    <div className="space-y-3">{items.map(item => {
+      const follow = item.kind === 'artist.followed';
+      const heading = item.kind === 'artist.followed' ? `${item.actorName} started following you` : labels[item.kind];
+      const description = item.kind === 'artist.followed' ? null : 'conversationId' in item ? item.actorName : `${item.actorName} · ${item.projectTitle}${item.need ? ` · ${item.need}` : ''}`;
+      const href = notificationHref(item);
+      const accessibleName = item.kind === 'artist.followed' ? heading : 'conversationId' in item ? `${heading} · ${item.actorName}` : `${heading} · ${item.projectTitle} · ${item.need}`;
+      return <article key={item.id} aria-label={accessibleName} className={`border p-5 space-y-3 ${item.readAt ? 'border-border' : 'border-accent/60 bg-accent/5'}`}>
+        <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs text-muted"><time dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time></p><span className={`text-xs ${item.readAt ? 'text-muted' : 'text-accent'}`}>{item.readAt ? 'Read' : 'Unread'}</span></div>
+        <h2 className="text-lg font-semibold break-words">{heading}</h2>{description && <p className="break-words text-sm">{description}</p>}
+        {!href && <p className="text-sm text-muted">{follow ? 'This artist profile is no longer available.' : 'This conversation is no longer available.'}</p>}
+        <div className="flex flex-wrap gap-3">{href && <Link className={button} href={href} aria-disabled={pending} onClick={event => { if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); if (pending) return; if (item.readAt) { close(); navigate(href); } else void markRead({ id: item.id }, href); }}>{follow ? 'View artist' : 'conversationId' in item ? 'View conversation' : 'View collaboration'}</Link>}
+          {!item.readAt && <button className="px-2 py-3 text-sm underline disabled:opacity-40" disabled={pending} onClick={() => void markRead({ id: item.id })}>Mark as read</button>}</div>
+      </article>;
+    })}</div>
     {query.hasNextPage && <button className={button} disabled={pending || query.isFetching} onClick={() => void query.fetchNextPage()}>Load earlier notifications</button>}
   </section>;
 }

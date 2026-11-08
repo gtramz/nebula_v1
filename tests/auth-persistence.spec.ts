@@ -1,3 +1,4 @@
+import { clickProfileLogout } from '../tests-support/profile-actions';
 import { expect, test, type Page } from '@playwright/test';
 import { createLocalStore, STORAGE_KEY } from '../lib/local/src/store';
 
@@ -11,6 +12,7 @@ async function register(page: Page, role: 'artist' | 'investor', email: string) 
   await page.getByLabel('password', { exact: true }).fill('preview123');
   await page.getByLabel('confirm password', { exact: true }).fill('preview123');
   await page.getByRole('button', { name: 'create account', exact: true }).click();
+  if (role === 'artist') { await expect(page).toHaveURL(/\/onboarding$/); await page.getByRole('button', { name: 'Skip for now', exact: true }).click(); }
   await expect(page).toHaveURL(role === 'artist' ? /\/profile$/ : /\/explore$/);
 }
 async function login(page: Page, email: string, role: 'artist' | 'investor') {
@@ -34,7 +36,7 @@ test('real registration survives closed tabs, browser-session restoration, logou
   await reopened.getByRole('menuitem', { name: 'clear demo data', exact: true }).click();
   await expect(reopened).toHaveURL(/\/$/);
   await reopened.goto('/profile');
-  await reopened.getByRole('button', { name: 'LOGOUT', exact: true }).click();
+  await clickProfileLogout(reopened);
   await login(reopened, 'saved@example.invalid', 'artist');
   await expect(reopened.getByRole('region', { name: 'Account activity' })).toContainText('Account created');
   await reopened.screenshot({ path: info.outputPath('saved-account.png'), fullPage: true });
@@ -55,7 +57,7 @@ test('concurrent registrations preserve both accounts and activity synchronizes 
   await expect(page.getByText('artist@example.invalid', { exact: true })).toBeVisible();
   await other.goto('/profile');
   await expect(other.getByText('investor@example.invalid', { exact: true })).toBeVisible();
-  await other.getByRole('button', { name: 'LOGOUT', exact: true }).click();
+  await clickProfileLogout(other);
   await page.reload();
   await expect(page.getByText('artist@example.invalid', { exact: true })).toBeVisible();
   await login(other, 'artist@example.invalid', 'artist');

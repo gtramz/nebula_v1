@@ -1,102 +1,30 @@
-import { ReturnLink } from '@/components/antiq/workspace';
-import { useParams, Link } from "wouter";
-import { useGetArtist, getGetArtistQueryKey } from "@nebula/local";
-import { ContentWidth } from "@/components/shell/app-shell";
-import { ProjectCard } from "@/components/project-card";
-import { formatMoney } from "@/lib/utils";
-import { MapPin, Music } from "lucide-react";
+import { useParams, Link } from 'wouter';
+import { usePublicArtist } from '@nebula/local';
+import { useAuth } from '@/context/AuthContext';
+import { ContentWidth } from '@/components/shell/app-shell';
+import { ReturnLink, Panel, controlStyles } from '@/components/antiq/workspace';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ArtistProfileHeader, ArtistPublications, ArtistProjects, ArtistAbout } from '@/features/artist-identity/public-profile';
 
 export default function ArtistProfile() {
-  const { id } = useParams<{ id: string }>();
-  const { data: artistDetail, isLoading } = useGetArtist(Number(id), {
-    query: { enabled: !!id, queryKey: getGetArtistQueryKey(Number(id)) }
-  });
-
-  if (isLoading) {
-    return <div className="flex-1 p-8 text-center text-muted voice animate-pulse">LOADING ARTIST...</div>;
-  }
-
-  if (!artistDetail) {
-    return <div className="flex-1 p-8 text-center text-muted voice">ARTIST NOT FOUND<ReturnLink contextual href="/explore" className="mx-auto mt-4" /></div>;
-  }
-
-  const { artist, projects, totalRaised, backersCount } = artistDetail;
-
-  return (
-    <div data-page-scroll className="flex-1 overflow-y-auto">
-      <div className="relative h-64 lg:h-80 w-full bg-surfaceAlt overflow-hidden">
-        {artist.picture ? (
-          <img src={artist.picture} alt={artist.name} className="object-cover w-full h-full opacity-60 mix-blend-luminosity" />
-        ) : (
-          <div className="absolute inset-0 bg-surfaceAlt" />
-        )}
-        <div className="absolute inset-0 bg-black/70" />
-
-        <ReturnLink contextual href="/explore" className="absolute top-6 left-6 z-20 text-cream" />
-      </div>
-
-      <ContentWidth className="-mt-20 relative z-10 space-y-12 pb-24">
-        <div className="flex flex-col md:flex-row gap-8 items-start md:items-end px-4 lg:px-0">
-          <div className="w-32 h-32 lg:w-40 lg:h-40 rounded-full border-4 border-bg bg-surface overflow-hidden shrink-0 shadow-xl">
-            {artist.picture ? (
-              <img src={artist.picture} alt={artist.name} className="object-cover w-full h-full" />
-            ) : (
-              <div className="w-full h-full bg-accent/20 flex items-center justify-center text-4xl font-bold text-accent">{artist.name.charAt(0)}</div>
-            )}
-          </div>
-
-          <div className="flex-1 space-y-2">
-            <h1 className="text-4xl lg:text-5xl font-display font-bold text-ink tracking-tight text-veil">{artist.name}</h1>
-            <div className="flex flex-wrap gap-4 text-sm text-muted voice">
-              {artist.genre && <span className="flex items-center gap-1.5"><Music className="w-4 h-4" /> {artist.genre}</span>}
-              {artist.basedIn && <span className="flex items-center gap-1.5"><MapPin className="w-4 h-4" /> {artist.basedIn}</span>}
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12 px-4 lg:px-0">
-          <div className="lg:col-span-2 space-y-10">
-            {artist.bio && (
-              <section className="space-y-4">
-                <h2 className="voice text-[10px] text-muted">ABOUT</h2>
-                <p className="text-ink/80 leading-relaxed whitespace-pre-wrap">{artist.bio}</p>
-              </section>
-            )}
-
-            <section className="space-y-4">
-              <h2 className="voice text-[10px] text-muted">PROJECTS</h2>
-              {projects.length > 0 ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {projects.map((project) => (
-                    <ProjectCard key={project.id} project={project} />
-                  ))}
-                </div>
-              ) : (
-                <div className="p-8 border border-border text-center text-muted voice border-dashed">no active projects</div>
-              )}
-            </section>
-          </div>
-
-          <div className="space-y-8">
-           <section className="p-6 border border-border space-y-6">
-              <h2 className="voice text-[10px] text-muted">FUNDING SUMMARY</h2>
-              <div className="space-y-4">
-                <div>
-                  <p className="text-3xl font-display font-bold text-cream">{formatMoney(totalRaised)}</p>
-                  <p className="text-xs text-muted voice mt-1">TOTAL RAISED</p>
-                </div>
-                <div className="h-px w-full bg-white/10" />
-                <div>
-                  <p className="text-xl font-display font-bold text-ink">{backersCount}</p>
-                  <p className="text-xs text-muted voice mt-1">TOTAL BACKERS</p>
-                </div>
-              </div>
-            </section>
-
-
-          </div>
-        </div>
-      </ContentWidth>
-    </div>
-  );
+  const { id } = useParams<{ id: string }>(), artistId = Number(id);
+  const query = usePublicArtist(artistId), { user } = useAuth();
+  if (query.isLoading) return <ContentWidth className="py-12"><p role="status">Loading artist…</p></ContentWidth>;
+  if (query.isError) return <ContentWidth className="py-12 space-y-4"><p role="alert">{query.error.message}</p><button className={controlStyles.button} onClick={() => void query.refetch()}>Retry profile</button><ReturnLink contextual href="/explore" /></ContentWidth>;
+  if (!query.data) return <ContentWidth className="py-12 space-y-4"><h1 className="text-3xl font-bold">Artist not found</h1><ReturnLink contextual href="/explore" /></ContentWidth>;
+  const detail = query.data, owner = user?.role === 'artist' && user.artistId === artistId;
+  return <div data-page-scroll className="flex-1 overflow-y-auto"><ContentWidth className="py-6 md:py-10 space-y-8 pb-16">
+    <ReturnLink contextual href="/explore" />
+    <ArtistProfileHeader artist={detail.artist} projectCount={detail.projects.length} owner={owner} capabilities={!owner && (!user || user.role === "artist") ? {message:{href:user ? `/messages/new/${artistId}` : "/login"}} : undefined} />
+    <Tabs key={artistId} defaultValue="music" className="space-y-6">
+      <TabsList aria-label="Artist profile sections" className="grid h-auto w-full grid-cols-2 sm:grid-cols-5 gap-1 rounded-none border-y border-border bg-transparent p-2 text-muted">
+        {([['music','Music'],['posts','Discovery Posts'],['projects','Projects'],['collaborations','Collaborations'],['about','About']] as const).map(([value,label]) => <TabsTrigger key={value} value={value} className="min-h-11 min-w-0 whitespace-normal rounded-full px-3 py-2 data-[state=active]:bg-surfaceAlt data-[state=active]:text-accent focus-visible:ring-accent">{label}</TabsTrigger>)}
+      </TabsList>
+      <TabsContent value="music"><ArtistPublications artistId={artistId} music owner={owner} /></TabsContent>
+      <TabsContent value="posts"><h2 className="text-2xl font-bold mb-5">Discovery Posts</h2><ArtistPublications artistId={artistId} owner={owner} /></TabsContent>
+      <TabsContent value="projects"><ArtistProjects detail={detail} /></TabsContent>
+      <TabsContent value="collaborations"><Panel><h2 className="text-2xl font-bold">Collaboration credits</h2><p>No public credits to display.</p><p className="text-sm text-muted">Private collaboration activity stays in its workspace. Completing a collaboration does not automatically create a public credit.</p>{owner && <Link className={controlStyles.button} href="/collaborations">Manage collaborations</Link>}</Panel></TabsContent>
+      <TabsContent value="about"><ArtistAbout artist={detail.artist} /></TabsContent>
+    </Tabs>
+  </ContentWidth></div>;
 }

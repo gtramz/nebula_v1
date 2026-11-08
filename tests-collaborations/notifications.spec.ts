@@ -1,3 +1,4 @@
+import { legacyConversation } from './legacy-fixture';
 import { test, expect, type Page } from '@playwright/test';
 
 const headers = { Origin: 'http://127.0.0.1:4175', 'X-Nebula-Request': '1' };
@@ -6,7 +7,7 @@ async function rpc(page: Page, method: string, ...args: unknown[]) {
   expect(response.ok()).toBe(true); return (await response.json()).result;
 }
 
-test('artist notifications reach both accounts, open the workspace, persist reads and stay private', async ({ page, browser }, info) => {
+test('historical notifications: artist notifications reach both accounts, open the workspace, persist reads and stay private', async ({ page, browser }, info) => {
   test.setTimeout(100_000);
   const live = expect.configure({ timeout: 15_000 }), tag = `${info.project.name}-${Date.now()}`;
   const email = `notification-owner-${tag}@example.invalid`, errors: string[] = [];
@@ -15,7 +16,8 @@ test('artist notifications reach both accounts, open the workspace, persist read
   const project = await rpc(page, 'createProject', { title: 'Notification sessions', category: 'EP', goalAmount: 1000, status: 'published' });
   const offer = await page.request.post(`/api/projects/${project.id}/offers`, { headers, data: { need: 'Verse', deliverable: 'An original verse.', requirements: 'Dry vocals.', deadline: null, compensation: { kind: 'split', percent: 10 }, status: 'open' } });
   expect(offer.ok()).toBe(true);
-  await page.goto('/discovery');
+  const notificationHost = info.project.name === 'mobile' ? '/profile' : '/discovery';
+  await page.goto(notificationHost);
   await expect(page.getByRole('button', { name: 'Notifications (0 unread)', exact: true })).toBeVisible();
   const context = await browser.newContext({ baseURL: 'http://127.0.0.1:4175', viewport: page.viewportSize()!, isMobile: info.project.name === 'mobile', hasTouch: info.project.name === 'mobile' });
   try {
@@ -23,17 +25,18 @@ test('artist notifications reach both accounts, open the workspace, persist read
     await artist.goto('/notifications');
     await expect(artist.getByText('Log in as an artist to view your notifications.', { exact: true })).toBeVisible();
     await rpc(artist, 'register', { name: 'Notification Vocalist', role: 'artist', email: `notification-artist-${tag}@example.invalid`, password: 'preview123' });
+    await legacyConversation(artist,(await offer.json()).id);
     await artist.goto(`/project/${project.id}`);
     await artist.getByRole('button', { name: 'Contact artist', exact: true }).click();
-    await expect(artist).toHaveURL(/\/collaborations\/\d+$/);
-    const workspace = new URL(artist.url()).pathname;
+    await expect(artist).toHaveURL(/\/messages\/collaboration\/\d+$/);
+    const workspace = new URL(artist.url()).pathname.replace('/messages/collaboration/','/collaborations/');
     await artist.getByRole('textbox', { name: 'Message', exact: true }).fill('Can I contribute a verse?');
     await artist.getByRole('button', { name: 'Send message', exact: true }).click();
     await expect(artist.getByRole('button', { name: 'Notifications (0 unread)', exact: true })).toBeVisible();
     await page.bringToFront();
     const bell = page.getByRole('button', { name: 'Notifications (2 unread)', exact: true });
     await live(bell).toBeVisible(); await bell.focus(); await page.keyboard.press('Enter');
-    await expect(page).toHaveURL(/\/discovery$/);
+    await expect(page).toHaveURL(new RegExp(`${notificationHost}$`));
     await expect(page.getByRole('dialog', { name: 'Notifications' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Notifications', exact: true })).toBeVisible();
     const contact = page.getByRole('article', { name: 'Started a collaboration conversation · Notification sessions · Verse', exact: true });
@@ -96,7 +99,7 @@ test('artist notifications reach both accounts, open the workspace, persist read
     await expect(page.getByText('Log in as an artist to view your notifications.', { exact: true })).toBeVisible();
     await rpc(page, 'register', { name: 'Notification Investor', role: 'investor', email: `notification-investor-${tag}@example.invalid`, password: 'preview123' });
     await page.reload();
-    await expect(page.getByText('Collaboration notifications are available to artist accounts.', { exact: true })).toBeVisible();
+    await expect(page.getByText('Notifications are available to artist accounts.', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /^Notifications/ })).toHaveCount(0);
     await rpc(page, 'logout'); await rpc(page, 'login', { email, password: 'preview123' }); await page.reload();
     await expect(page.getByRole('article')).toHaveCount(2);

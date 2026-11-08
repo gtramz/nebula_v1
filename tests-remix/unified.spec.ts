@@ -23,6 +23,7 @@ test('one studio switches contribution formats without losing fields and returns
   await expect(page.getByRole('button', { name: 'Record video', exact: true })).toBeEnabled();
   await page.getByLabel('Remix title', { exact: true }).fill('Kept title'); await page.getByLabel('Description', { exact: true }).fill('Kept description');
   await page.getByLabel('Base volume', { exact: true }).press('Home'); await page.getByLabel('Your contribution volume', { exact: true }).press('End');
+  await expect(page.getByLabel('Original fragment', { exact: true })).toHaveJSProperty('volume', 0.05);
   const input = page.getByLabel('Upload file', { exact: true }), preview = page.getByRole('region', { name: 'Remix preview', exact: true });
   await input.setInputFiles('artifacts/nebula/public/discovery-demo/soft-signal.wav');
   await expect(page.getByText('Result: the original audio mixed with your sound.', { exact: true })).toBeVisible();

@@ -11,6 +11,9 @@
 .primary-link[aria-current=page] { color: var(--color-accent); }
 .mobile-navigation-header { padding-top: env(safe-area-inset-top, 0px); padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); }
 .navigation-tooltip { display: none; }
+@media (max-width: 767px) {
+  .primary-link[data-mobile-hidden=true] { display: none; }
+}
 @media (min-width: 768px) {
   .app-shell[data-navigation=true] { --sidebar-width: 72px; --bottom-navigation-height: 0px; }
   .app-navigation { display: flex; flex-direction: column; height: 100dvh; width: var(--sidebar-width); padding: max(16px, env(safe-area-inset-top)) 13px max(16px, env(safe-area-inset-bottom)); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; }

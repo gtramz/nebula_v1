@@ -1,3 +1,14 @@
+import { works } from './works.js';
+import { musicalProject } from '../lib/local/src/works.js';
+import { messageStorage } from './message-storage.js';
+import { messages } from './messages.js';
+import { notifications } from './notifications.js';
+import { transaction } from './transaction.js';
+import { follows } from './follows.js';
+import { createHomeCursorCodec, pageHomeProjects } from './project-browser.js';
+import { buildHomeAffinitySignals, rankHomeProjects } from './home-affinity.js';
+import type { HomeForYouSummary } from '../lib/local/src/opportunities.js';
+import { filterOpportunityProjects, opportunitySuggestions, homeFacetOptions, normalizeHomeFilters, emptyHomeFilters, opportunityNeeds, projectTypes, type HomeSearch } from '../lib/local/src/opportunity-search.js';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -22,6 +33,7 @@ const LIMIT = 100 * 1024 * 1024;
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 
 export async function createNebulaServer(options: { dataDir: string; publicDir: string; origin?: string; maxStorageBytes?: number }) {
+  const homeCursors = createHomeCursorCodec();
   const directory = resolve(options.dataDir), mediaDirectory = join(directory, 'media');
   await mkdir(mediaDirectory, { recursive: true, mode: 0o700 });
   const db = new DatabaseSync(join(directory, 'nebula.sqlite'));
@@ -70,6 +82,7 @@ export async function createNebulaServer(options: { dataDir: string; publicDir: 
     return user;
   }
   function mediaRow(mediaId: string): MediaRow | undefined { return db.prepare('SELECT * FROM media WHERE id=?').get(mediaId) as MediaRow | undefined; }
+  const songStore = works(db, (id, viewer) => domain(viewer).getProject(id)?.project ?? null);
   const mediaDto = (row: MediaRow): UploadedMedia => ({ id: row.id, name: row.name ?? `${row.kind}-${row.id}`, kind: row.kind, mime: row.mime, size: row.size, url: `/media/${row.id}` });
   const remixStore = remixes(db, owner => domain(null).getArtist(owner)?.artist.name ?? 'Artist');
   function postDto(row: PostRow, viewer: number | null): Publication {
@@ -79,6 +92,7 @@ export async function createNebulaServer(options: { dataDir: string; publicDir: 
     return { ...data, remix: remixStore.credit(data.remix), id: row.id, artistId: row.owner, artistName: artist?.name ?? 'Artist', artistPicture: artist?.picture ?? null,
       media: mediaDto(media), coverUrl: data.coverId ? `/media/${data.coverId}` : null,
       project: data.projectId ? store.getProject(data.projectId)?.project ?? null : null,
+      ...(data.workId ? { song: data.projectId ? songStore.linked(data.projectId,data.workId,viewer) : null } : {}),
       offers: data.projectId ? collaboration.publicOffers(data.projectId, viewer) : [],
       createdAt: row.created, updatedAt: row.updated, revision: row.revision, social: social(row.id, viewer) };
   }
@@ -108,7 +122,8 @@ export async function createNebulaServer(options: { dataDir: string; publicDir: 
       ensure(linked && linked.artistId === owner, 'Link one of your available projects.');
       ensure(data.status !== 'published' || linked.status !== 'draft', 'Publish the project before linking it to a public post.');
     }
-    return { title: text(data.title, 'Title', 160, 1), description: text(data.description, 'Description', 2000),
+    const song = songStore.validateLink(projectId,data.workId,owner);
+    return { ...(song ? {workId:song.id} : {}), title: text(data.title, 'Title', 160, 1), description: text(data.description, 'Description', 2000),
       mediaId, coverId, projectId, allowRemix: bool(data.allowRemix), status: data.status as PublicationInput['status'] };
   }
   function rateLimit(req: IncomingMessage, name: string, limit: number, seconds: number, identity?: string) {
@@ -170,16 +185,56 @@ export async function createNebulaServer(options: { dataDir: string; publicDir: 
         case 'listArtists': { const input = object(args[0] ?? {}); result = store.listArtists({ search: input.search == null ? undefined : text(input.search, 'Search', 200) }); break; }
         case 'getProject': result = store.getProject(id(args[0])); break;
         case 'getArtist': result = store.getArtist(id(args[0])); break;
+        case 'getPublicArtist': {
+          const detail = store.getPublicArtist(id(args[0]));
+          result = detail ? { ...detail, opportunityProjectIds: detail.projects.filter(p => p.status === 'funding' || collaboration.publicOffers(p.id, null).some(offer => offer.available)).map(p => p.id) } : null;
+          break;
+        }
         case 'listMyInvestments': current(req); result = store.listMyInvestments(); break;
         case 'listReceivedInvestments': current(req, true); result = store.listReceivedInvestments(); break;
         case 'getInvestment': current(req); result = store.getInvestment(id(args[0])); break;
         case 'listAuthEvents': current(req); result = store.listAuthEvents(); break;
         case 'updateArtist': current(req, true); result = store.updateArtist(profile(args[0])); break;
-        case 'createProject': current(req, true); result = store.createProject(project(args[0]) as unknown as ProjectInput); break;
+        case 'getMyArtistOnboarding': {
+          current(req, true); ensure(args.length === 0, 'This operation only reads your own onboarding.');
+          result = store.getMyArtistOnboarding(); break;
+        }
+        case 'updateArtistIdentity': {
+          current(req, true); ensure(args.length === 1, 'Provide only your identity changes.');
+          const input = object(args[0]);
+          ensure(Object.keys(input).every(key => ['profile','preferences','onboarding','expected'].includes(key)), 'Unsupported artist identity field.');
+          let patch;
+          if (input.profile !== undefined) {
+            const fields = object(input.profile);
+            // Reuse profile validation without making an unchanged name part of the patch.
+            const validated = profile({ name: store.getCurrentUser()!.name, ...fields });
+            const { name, ...rest } = validated;
+            patch = Object.hasOwn(fields, 'name') ? { name, ...rest } : rest;
+          }
+          result = store.updateArtistIdentity({ ...input, ...(patch !== undefined ? { profile: patch } : {}) }); break;
+        }
+        case 'getMyArtistPreferences': {
+          current(req, true); ensure(args.length === 0, 'This operation only reads your own preferences.');
+          result = store.getMyArtistPreferences(); break;
+        }
+        case 'updateMyArtistPreferences': {
+          current(req, true); ensure(args.length === 1, 'Provide only your preference changes.');
+          result = store.updateMyArtistPreferences(object(args[0])); break;
+        }
+        case 'createProject': {
+          const owner=current(req,true).artistId!, raw=object(args[0]);
+          ensure(raw.songs===undefined || (typeof raw.operationId==='string' && raw.operationId.length>=16),'Provide an operation ID when creating a project with songs.');
+          const create=()=>{const created=store.createProject(project(raw) as unknown as ProjectInput);if(raw.songs!==undefined)songStore.save(created.id,owner,{revision:0,songs:raw.songs});return created;};
+          result=raw.operationId ? transaction(db,()=>songStore.operation(owner,raw.operationId,'project:create',raw,create)) : transaction(db,create);break;
+        }
         case 'updateProject': {
           const owner = current(req, true).artistId;
           ensure(store.getProject(id(args[0]))?.project.artistId === owner, 'Project not found.', 404);
-          result = store.updateProject(id(args[0]), project(args[1])); break;
+          const raw=object(args[1]), existing=store.getProject(id(args[0]))!.project;
+          const changes=project(raw);
+          if(raw.expected!==undefined){const expected=object(raw.expected);for(const key of Object.keys(changes))ensure(JSON.stringify((existing as unknown as Record<string,unknown>)[key]??null)===JSON.stringify(expected[key]??null),'Project changed in another tab. Reload and review your draft.',409);}
+          if(changes.category!==undefined && !musicalProject(String(changes.category)))ensure(!songStore.list(existing.id,owner!).songs.length,'Remove unreferenced songs before changing to a non-musical format.',409);
+          result = store.updateProject(id(args[0]), changes); break;
         }
         case 'deleteProject': {
           const owner = current(req, true).artistId;
@@ -205,9 +260,14 @@ export async function createNebulaServer(options: { dataDir: string; publicDir: 
     });
   }
   const drafts = remixDrafts({ db, current, body, json, media: key => { const row = mediaRow(key); return row ? { ...mediaDto(row), owner: row.owner } : undefined; }, name: owner => domain(null).getArtist(owner)?.artist.name ?? 'Artist' });
-  const collaboration = collaborations({ db, current, viewer: accountId, body, json, rate: rateLimit, privateMedia: drafts.isPrivate, remixProposal: drafts.proposal,
+  const publicActor = (id: number) => { const user = domain(id).getCurrentUser(); return user?.role === 'artist' && user.artistId === id ? domain(null).getArtist(id)?.artist : undefined; };
+  const messageStore = messageStorage(db);
+  const alerts = notifications(db, publicActor, (id,viewer)=>!!db.prepare('SELECT 1 FROM artist_conversations WHERE id=? AND (sender=? OR recipient=?)').get(id,viewer,viewer));
+  const collaboration = collaborations({ songs:songStore, alerts, messages: messageStore, isArtist: id=>!!publicActor(id), db, current, viewer: accountId, body, json, rate: rateLimit, privateMedia: drafts.isPrivate, remixProposal: drafts.proposal,
     project: (id, viewer) => domain(viewer).getProject(id)?.project ?? null,
     name: id => domain(id).getCurrentUser()?.name ?? 'Artist', media: mediaRow });
+  const messageService = messages({db,store:messageStore,alerts,current,body,json,rate:rateLimit,artist:publicActor,project:id=>domain(null).getProject(id)?.project ?? null,collaboration});
+  const followStore = follows(db, publicActor);
   const waveformStore = waveforms(directory, mediaDirectory);
   const uploads = new Set<number>();
   async function upload(req: IncomingMessage, res: ServerResponse) {
@@ -293,8 +353,95 @@ export async function createNebulaServer(options: { dataDir: string; publicDir: 
       }
       if (url.pathname === '/api/session' && req.method === 'GET') { json(res, { user: domain(accountId(req)).getCurrentUser() }); return; }
       if (url.pathname === '/api/rpc' && req.method === 'POST') { await rpc(req, res); return; }
+      const followMatch = /^\/api\/artists\/(\d+)\/(social|followers|following|follow)$/.exec(url.pathname);
+      if (followMatch) {
+        const target = id(Number(followMatch[1])), operation = followMatch[2];
+        if (operation === 'follow') {
+          ensure(req.method === 'PUT' || req.method === 'DELETE', 'Method not allowed.', 405);
+          const viewer = current(req,true).artistId!;
+          rateLimit(req,'artist-follow',120,60,String(viewer));
+          const summary = transaction(db, () => {
+            const transition = followStore.change(viewer,target,req.method === 'PUT');
+            if (transition.event) alerts.recordFollow(transition.event);
+            return transition.summary;
+          });
+          json(res,summary); return;
+        }
+        ensure(req.method === 'GET', 'Method not allowed.', 405);
+        const viewer = accountId(req);
+        if (operation === 'social') { json(res,followStore.summary(target,viewer)); return; }
+        const before = url.searchParams.has('before') ? id(Number(url.searchParams.get('before'))) : Number.MAX_SAFE_INTEGER;
+        json(res,followStore.list(target,operation as 'followers'|'following',viewer,before)); return;
+      }
+      if (['/api/opportunities/projects', '/api/opportunities/suggestions'].includes(url.pathname)) {
+        ensure(req.method === 'GET', 'Method not allowed.', 405);
+        const before = url.searchParams.has('before') ? id(Number(url.searchParams.get('before'))) : Number.MAX_SAFE_INTEGER;
+        const category = url.searchParams.has('category') ? text(url.searchParams.get('category'), 'Category', 60) : 'all';
+        const search: HomeSearch = { q: url.searchParams.has('q') ? text(url.searchParams.get('q'), 'Search', 200) : '', criteria: {} };
+        for (const key of ['genre', 'need', 'compensation', 'opportunity', 'projectType'] as const) {
+          if (!url.searchParams.has(key)) continue;
+          const value = text(url.searchParams.get(key), key, key === 'genre' ? 200 : 60, 1);
+          const allowed: Record<string, readonly string[]> = { need: opportunityNeeds, compensation: ['split', 'fee'], opportunity: ['funding'], projectType: projectTypes };
+          ensure(key === 'genre' || allowed[key].includes(value), 'Invalid search criterion.');
+          Object.assign(search.criteria, { [key]: value });
+        }
+        const mode = url.searchParams.get('mode') ?? 'for-you';
+        ensure(mode === 'for-you' || mode === 'recent' || mode === 'following', 'Unsupported Home mode.');
+        ensure(mode !== 'recent' || !url.searchParams.has('before'), 'Use the Home cursor for Recently created.');
+        const filters = emptyHomeFilters();
+        for (const field of Object.keys(filters) as (keyof typeof filters)[]) {
+          const values = url.searchParams.getAll(field); ensure(values.length <= 50, 'Too many filter values.');
+          for (const value of values) {
+            text(value, field, field === 'artistGenres' ? 200 : 60, 1);
+            if (field === 'participation') ensure([...opportunityNeeds, 'Funding'].includes(value), 'Unsupported participation type.');
+            if (field === 'compensationKinds') ensure(['fee','split'].includes(value), 'Unsupported compensation type.');
+          }
+          Object.assign(filters, { [field]: values });
+        }
+        search.filters = normalizeHomeFilters(filters);
+        const cursor = url.searchParams.has('cursor') ? text(url.searchParams.get('cursor'), 'Cursor', 1000, 1) : null;
+        const viewerAccount = accountId(req), viewerStore = domain(viewerAccount), viewer = viewerStore.getCurrentUser();
+        if (mode === 'following') {
+          ensure(viewer, 'Log in to continue.', 401);
+          ensure(viewer.role === 'artist', 'This action requires an artist account.', 403);
+        }
+        const followingViewer = mode === 'following' ? viewer!.artistId! : null;
+        const followed = followingViewer !== null ? followStore.followedIds(followingViewer) : null;
+        // Public eligibility is shared by results and suggestions, before filtering/pagination.
+        const publicDomain = domain(null);
+        const inventory = collaboration.opportunityProjects(publicDomain.listProjects()).filter(item => !followed || followed.has(item.project.artistId)).sort((a, b) => b.project.id - a.project.id);
+        const artists = publicDomain.listArtists();
+        if (url.pathname.endsWith('/suggestions')) {
+          json(res, { items: opportunitySuggestions(inventory, artists, search, category) }); return;
+        }
+        const items = filterOpportunityProjects(inventory, artists, search, category);
+        // Session-owned preferences are read once, after eligibility and filters.
+        // Suggestions, Following, Recently created and Investor never use this ranker.
+        const signals = mode === 'for-you' && viewer?.role === 'artist'
+          ? buildHomeAffinitySignals(artists.find(artist => artist.id === viewer.artistId) ?? null, viewerStore.getMyArtistPreferences()) : null;
+        const affinity = signals ? rankHomeProjects(items, artists, search, signals) : null;
+        const summary = affinity?.summary;
+        const forYou: HomeForYouSummary = !summary?.hasMatches
+          ? { basis: 'general', reason: summary?.hasSignals ? 'no-matches' : 'no-signals' }
+          : { basis: summary.usesExplicitPreferences && summary.usesPublicProfile ? 'mixed' : summary.usesExplicitPreferences ? 'preferences' : 'profile' };
+        const signature = createHash('sha256').update(JSON.stringify({ search, category, mode, viewerAccount, signals })).digest('hex');
+        json(res, { ...pageHomeProjects(items, mode, cursor, before, signature, homeCursors, summary?.hasSignals ? affinity!.entries : undefined),
+          eligibleCount: inventory.length, ...(followed ? { followedArtistCount: followed.size } : {}), facets: homeFacetOptions(inventory, artists),
+          ...(mode === 'for-you' ? { forYou } : {}) }); return;
+      }
+      const songList=/^\/api\/projects\/(\d+)\/songs$/.exec(url.pathname), songRecord=/^\/api\/works\/(\d+)$/.exec(url.pathname);
+      if(songList || url.pathname==='/api/works' || songRecord){
+        if(songList && req.method==='GET'){json(res,songStore.list(id(Number(songList[1])),accountId(req)));return;}
+        const owner=current(req,true).artistId!;
+        if(url.pathname==='/api/works' && req.method==='GET'){json(res,songStore.mine(owner));return;}
+        ensure((songList&&req.method==='PUT')||(songRecord&&req.method==='DELETE'),'Method not allowed.',405);
+        const value=await body(req);rateLimit(req,'songs',100,60,String(owner));
+        const result=transaction(db,()=>songStore.operation(owner,value.operationId,url.pathname,value,()=>songList?songStore.save(id(Number(songList[1])),owner,value):songStore.remove(id(Number(songRecord![1])),owner,value.revision)));
+        json(res,result);return;
+      }
       if (url.pathname === '/api/uploads' && req.method === 'POST') { await upload(req, res); return; }
       if (await drafts.handle(req, res, url)) return;
+      if (await messageService.handle(req,res,url)) return;
       if (await collaboration.handle(req, res, url)) return;
       const waveformMatch = /^\/api\/publications\/(\d+)\/waveform$/.exec(url.pathname);
       if (waveformMatch && req.method === 'GET') {
@@ -408,10 +555,20 @@ export async function createNebulaServer(options: { dataDir: string; publicDir: 
       if (url.pathname === '/api/publications' && req.method === 'GET') {
         const viewer = accountId(req), mine = url.searchParams.get('mine') === '1';
         if (mine) current(req, true);
+        const artist = url.searchParams.has('artistId') ? id(Number(url.searchParams.get('artistId'))) : null;
+        const projectAudio = url.searchParams.get('projectAudio') === '1';
+        const songProject=url.searchParams.has('project')?id(Number(url.searchParams.get('project'))):null;
+        const songId=url.searchParams.has('song')?id(Number(url.searchParams.get('song'))):null;
+        if(songId){ensure(songProject&&songStore.linked(songProject,songId,null),'Song context unavailable.',404);ensure(!mine,'Related publications are public only.');}
+
+        ensure(!artist || !mine, 'Public artist publications cannot include drafts.');
+        ensure(!projectAudio || !!artist, 'Choose an artist for project audio.');
         const before = url.searchParams.get('before') ? Number(url.searchParams.get('before')) : Number.MAX_SAFE_INTEGER;
         ensure(Number.isSafeInteger(before) && before > 0, 'Invalid cursor.');
-        const rows = db.prepare(`SELECT * FROM posts WHERE id<? AND ${mine ? 'owner=?' : "json_extract(data,'$.status')='published'"} ORDER BY id DESC LIMIT 21`).all(...(mine ? [before, viewer!] : [before])) as PostRow[];
-        json(res, { items: rows.slice(0, 20).map(row => postDto(row, viewer)), nextCursor: rows.length > 20 ? rows[19].id : null }); return;
+        const projectIds = projectAudio ? domain(null).getPublicArtist(artist!)?.projects.filter(p => ['album','ep','single'].includes(p.category.toLowerCase())).map(p => p.id) ?? [] : [];
+        const params = [before, ...(mine ? [viewer!] : []), ...(artist ? [artist] : []), ...projectIds, ...(songId?[songProject!,songId]:[])];
+        const rows = db.prepare(`SELECT * FROM posts WHERE id<? AND ${mine ? 'owner=?' : "json_extract(data,'$.status')='published'"}${artist ? ' AND owner=?' : ''}${projectAudio ? ` AND json_extract(data,'$.projectId') IN (${projectIds.map(() => '?').join(',') || 'NULL'}) AND EXISTS(SELECT 1 FROM media WHERE media.id=json_extract(posts.data,'$.mediaId') AND media.kind='audio')` : ''}${songId ? " AND json_extract(data,'$.projectId')=? AND json_extract(data,'$.workId')=?" : ''} ORDER BY id DESC LIMIT 21`).all(...params) as PostRow[];
+        json(res, { items: rows.slice(0, 20).map(row => postDto(row, artist ? null : viewer)), nextCursor: rows.length > 20 ? rows[19].id : null }); return;
       }
       const postMatch = /^\/api\/publications\/(\d+)$/.exec(url.pathname);
       if (postMatch && req.method === 'GET') {
@@ -428,8 +585,8 @@ export async function createNebulaServer(options: { dataDir: string; publicDir: 
           const row = db.prepare('SELECT * FROM posts WHERE id=?').get(postId) as PostRow | undefined;
           ensure(row && row.owner === owner, 'Publication not found.', 404);
           ensure(input.revision === row.revision, 'This publication changed in another tab. Reload before saving.', 409);
-          const data: StoredPublication = publicationInput(input, owner) as StoredPublication;
           const previous = JSON.parse(row.data);
+          const data: StoredPublication = publicationInput({...input,workId:Object.hasOwn(input,'workId')?input.workId:previous.workId}, owner) as StoredPublication;
           ensure(!previous.remix || data.status !== 'published' || previous.status === 'published', 'Public release of remixes is deferred. Keep this remix private.', 409);
           data.remix = remixStore.validate(input.remix, data, previous);
           db.prepare('UPDATE posts SET data=?,revision=revision+1,updated=? WHERE id=?').run(JSON.stringify(data), now, postId);

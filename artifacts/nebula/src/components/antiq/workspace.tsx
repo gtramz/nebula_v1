@@ -3,6 +3,8 @@ import { Link } from 'wouter';
 import { ArrowLeft } from 'lucide-react';
 import { useReturnDestination, returnLabel } from '@/components/shell/return-context';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/context/AuthContext';
+import { projectDestination } from '@/components/shell/project-destination';
 
 export const controlStyles = {
   field: 'w-full min-w-0 min-h-11 rounded-field border border-border bg-surfaceAlt px-4 py-3 text-sm text-ink disabled:opacity-50',
@@ -20,6 +22,8 @@ export function ReturnButton({ children, className, ...props }: ComponentProps<'
   return <button type="button" {...props} className={cn(returnStyle, className)}><ArrowLeft size={16} aria-hidden="true" />{children}</button>;
 }
 export function ReturnLink({ href, children, onClick, contextual = false, className }: { href: string; children?: ReactNode; onClick?: () => void; contextual?: boolean; className?: string }) {
+  const { user } = useAuth();
   const parent = useReturnDestination(href), destination = contextual ? parent : href;
-  return <Link href={destination} state={{ __nebulaReturn: true }} onClick={onClick} className={cn(returnStyle, className)}><ArrowLeft size={16} aria-hidden="true" />{contextual ? returnLabel(destination) : children ?? returnLabel(href)}</Link>;
+  const label = destination.split('?')[0] === '/explore' ? `Back to ${projectDestination(user?.role)}` : returnLabel(destination);
+  return <Link href={destination} state={{ __nebulaReturn: true }} onClick={onClick} className={cn(returnStyle, className)}><ArrowLeft size={16} aria-hidden="true" />{contextual ? label : children ?? label}</Link>;
 }

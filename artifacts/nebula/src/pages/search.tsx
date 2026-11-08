@@ -1,7 +1,7 @@
 import { useViewState } from '@/components/shell/return-context';
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
-import { useCatalogSearch } from "@nebula/local";
+import { artistSearchGenreLabel, useCatalogSearch } from "@nebula/local";
 import { ContentWidth } from "@/components/shell/app-shell";
 import { Search as SearchIcon, X } from "lucide-react";
 import { ProjectCard } from "@/components/project-card";
@@ -89,7 +89,7 @@ export default function Search() {
                         </div>
                         <div className="min-w-0 flex-1 break-words">
                           <p className="font-bold text-ink">{artist.name}</p>
-                          <p className="text-[10px] voice text-muted mt-0.5">{artist.genre || "Artist"} • {artist.projectCount} Projects</p>
+                          <p className="text-[10px] voice text-muted mt-0.5">{artistSearchGenreLabel(artist) || "Artist"} • {artist.projectCount} Projects</p>
                         </div>
                       </div>
                     </Link>

@@ -12,6 +12,7 @@ async function signup(page: Page, email: string) {
   await page.getByLabel('password', { exact: true }).fill('preview123');
   await page.getByLabel('confirm password', { exact: true }).fill('preview123');
   await page.getByRole('button', { name: 'create account', exact: true }).click();
+  { await expect(page).toHaveURL(/\/onboarding$/); await page.getByRole('button', { name: 'Skip for now', exact: true }).click(); }
   await expect(page).toHaveURL(/\/profile$/);
 }
 
@@ -71,6 +72,8 @@ test('password-verified transfer keeps browser originals and excludes old projec
   let raw: string | null = null;
   const local = createLocalStore({ getItem: () => raw, setItem: (_key, value) => { raw = value; } });
   await local.register({ email, password: 'preview123', role: 'artist', name: 'Transferred Artist' });
+  local.updateArtist({ name: 'Transferred Artist', genre: 'Legacy genre', genres: ['Jazz','Soul'], genreIds: [], creativeRoles: ['composer', 'session-musician'], collaborationAvailability: 'limited' });
+  local.updateMyArtistPreferences({ discovery: { genres: ['Not transferred private taste'] } });
   local.createProject({ title: 'Old demo project', category: 'EP', goalAmount: 1000 });
   await page.goto('/login');
   await page.evaluate(({ key, raw }) => localStorage.setItem(key, raw), { key: STORAGE_KEY, raw: raw! });
@@ -82,6 +85,10 @@ test('password-verified transfer keeps browser originals and excludes old projec
   await expect(page).toHaveURL(/\/profile$/);
   await expect(page.getByRole('heading', { name: 'Transferred Artist' })).toBeVisible();
   await expect(page.getByText('NO PROJECTS YET', { exact: true })).toBeVisible();
+  const session = await (await page.request.get('/api/session')).json();
+  expect(session.user.artist).toMatchObject({ genre: 'Legacy genre', genres: ['Jazz','Soul'], genreIds: [], creativeRoles: ['composer', 'session-musician'], collaborationAvailability: 'limited' });
+  const preferences = await page.request.post('/api/rpc', { headers: { Origin: 'http://127.0.0.1:4175', 'X-Nebula-Request': '1' }, data: { method: 'getMyArtistPreferences', args: [] } });
+  expect((await preferences.json()).result.discovery.genres).toEqual([]);
   expect(await page.evaluate(key => localStorage.getItem(key), STORAGE_KEY)).toBe(raw);
 });
 

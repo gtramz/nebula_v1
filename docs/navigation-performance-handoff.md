@@ -1,5 +1,7 @@
 # Return navigation and Discovery performance (UX-02 / PERF-01)
 
+> Historical phase snapshot. For current status, superseding features and consolidated verification, see [Manuel release handoff](manuel-release-handoff.md). Earlier deferred items may now be implemented; the current operation inventory is [integration-contracts.md](integration-contracts.md).
+
 This delivery extends the shared collaboration controls to the rest of the UI.
 It keeps the existing runtime boundary: no new API, migration, dependency,
 production provider or account/project/media changes.

@@ -1,3 +1,5 @@
+import { clickProfileLogout } from '../tests-support/profile-actions';
+import { legacyConversation } from './legacy-fixture';
 import { test, expect, type Page, type Browser, type TestInfo } from '@playwright/test';
 const headers = { Origin: 'http://127.0.0.1:4175', 'X-Nebula-Request': '1' };
 async function rpc(page: Page, method: string, ...args: unknown[]) {
@@ -12,7 +14,7 @@ async function fixture(page: Page, browser: Browser, info: TestInfo) {
   const context = await browser.newContext({ baseURL: 'http://127.0.0.1:4175', viewport: page.viewportSize()!, isMobile: info.project.name === 'mobile', hasTouch: info.project.name === 'mobile' });
   const artist = await context.newPage();
   await rpc(artist, 'register', { name: 'Workspace Artist', role: 'artist', email: `ux-artist-${tag}@example.invalid`, password: 'preview123' });
-  const response = await artist.request.post(`/api/offers/${offer.id}/conversations`, { headers, data: {} }); expect(response.ok()).toBe(true);
+  const response = await legacyConversation(artist,offer.id); expect(response.ok()).toBe(true);
   const thread = await response.json(); const path = `/collaborations/${thread.id}`;
   await artist.goto(path);
   return { context, artist, thread, path, offer, project };
@@ -20,7 +22,7 @@ async function fixture(page: Page, browser: Browser, info: TestInfo) {
 const pdf = { name: 'Proposal notes.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7\nProposal notes\n%%EOF') };
 const proposal = (page: Page) => page.getByRole('form', { name: 'Proposal form', exact: true });
 
-test('working copies survive parent return, reload, notification overlay and failed refresh', async ({ page, browser }, info) => {
+test('historical workspace: working copies survive parent return, reload, notification overlay and failed refresh', async ({ page, browser }, info) => {
   test.setTimeout(60_000);
   const { context, artist, path } = await fixture(page, browser, info);
   try {
@@ -33,8 +35,8 @@ test('working copies survive parent return, reload, notification overlay and fai
     await artist.locator('[data-notification-bell]:visible').click();
     await artist.keyboard.press('Escape');
     await expect(artist.getByRole('textbox', { name: 'Message', exact: true })).toHaveValue('Keep this private message.');
-    await artist.getByRole('link', { name: 'All collaborations', exact: true }).click();
-    await expect(artist.getByRole('button', { name: 'Sent', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await artist.getByRole('link', { name: 'All messages', exact: true }).click();
+    await expect(artist.getByRole('button', { name: 'Conversations', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await artist.getByRole('link', { name: /Shared workspace · Verse/ }).click();
     await expect(artist.getByRole('textbox', { name: 'Your proposal', exact: true })).toHaveValue('Keep these proposal notes.');
     await artist.reload();
@@ -45,20 +47,20 @@ test('working copies survive parent return, reload, notification overlay and fai
     await expect(artist.getByRole('textbox', { name: 'Your proposal', exact: true })).toHaveValue('Keep these proposal notes.');
     await artist.unroute(`**/api${path}`); await artist.getByRole('button', { name: 'Retry collaboration' }).click();
     await expect(artist.getByRole('button', { name: 'Retry collaboration' })).toHaveCount(0);
-    await artist.getByRole('link', { name: 'All collaborations', exact: true }).scrollIntoViewIfNeeded();
+    await artist.getByRole('link', { name: 'All messages', exact: true }).scrollIntoViewIfNeeded();
     await artist.screenshot({ path: info.outputPath('applicant-workspace.png') });
     await page.goto(path); await expect(page.getByText('Project owner', { exact: true })).toBeVisible();
     await page.screenshot({ path: info.outputPath('owner-workspace.png') });
     expect(await artist.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const shapes = await artist.evaluate(() => ({ field: getComputedStyle(document.querySelector('textarea')!).borderRadius, panel: getComputedStyle(document.querySelector('[aria-label="Next step"]')!).borderRadius, button: getComputedStyle(document.querySelector('button[type="submit"]') ?? document.querySelector('form button:last-child')!).borderRadius }));
     expect(shapes.field).toBe('12px'); expect(shapes.panel).toBe('0px'); expect(parseFloat(shapes.button)).toBeGreaterThan(100);
-    await artist.goto('/profile'); await artist.getByRole('button', { name: 'LOGOUT', exact: true }).click();
+    await artist.goto('/profile'); await clickProfileLogout(artist);
     await expect(artist).toHaveURL(/\/$/);
     await expect.poll(() => artist.evaluate(() => Object.keys(sessionStorage).filter(key => key.startsWith('nebula-collaboration-draft:')))).toEqual([]);
   } finally { await context.close(); }
 });
 
-test('stale terms retain files and text; decline and withdrawal require deliberate confirmation', async ({ page, browser }, info) => {
+test('historical workspace: stale terms retain files and text; decline and withdrawal require deliberate confirmation', async ({ page, browser }, info) => {
   const { context, artist, path, offer } = await fixture(page, browser, info);
   try {
     await artist.getByRole('textbox', { name: 'Your proposal', exact: true }).fill('A proposal to keep after conflict.');
@@ -87,7 +89,7 @@ test('stale terms retain files and text; decline and withdrawal require delibera
   } finally { await context.close(); }
 });
 
-test('upload guard retains active work and duplicate submissions or messages produce one mutation', async ({ page, browser }, info) => {
+test('historical workspace: upload guard retains active work and duplicate submissions or messages produce one mutation', async ({ page, browser }, info) => {
   const { context, artist, path } = await fixture(page, browser, info);
   try {
     let releaseUpload!: () => void; const gate = new Promise<void>(resolve => { releaseUpload = resolve; });
@@ -95,7 +97,7 @@ test('upload guard retains active work and duplicate submissions or messages pro
     await artist.getByRole('textbox', { name: 'Your proposal', exact: true }).fill('One submission only.');
     await artist.getByLabel('Work files (audio, video, PDF or ZIP)', { exact: true }).setInputFiles(pdf);
     await expect(artist.getByText(/^Uploading \d+%$/)).toBeVisible();
-    artist.once('dialog', dialog => dialog.dismiss()); await artist.getByRole('link', { name: 'All collaborations', exact: true }).click();
+    artist.once('dialog', dialog => dialog.dismiss()); await artist.getByRole('link', { name: 'All messages', exact: true }).click();
     await expect(artist).toHaveURL(new RegExp(path + '$')); await expect(artist.getByText(/^Uploading \d+%$/)).toBeVisible();
     releaseUpload(); await expect(proposal(artist).getByRole('link', { name: 'Download Proposal notes.pdf' })).toBeVisible();
     await artist.getByRole('checkbox').check();
@@ -113,17 +115,18 @@ test('upload guard retains active work and duplicate submissions or messages pro
   } finally { await context.close(); }
 });
 
-test('list return restores scroll and sent view; offer editing resumes without stale saved defaults', async ({ page, browser }, info) => {
+test('historical workspace: list return restores scroll and sent view; offer editing resumes without stale saved defaults', async ({ page, browser }, info) => {
   const { context, artist, thread, project } = await fixture(page, browser, info);
   try {
-    const rows = [...Array.from({ length: 20 }, (_, index) => ({ ...thread, id: index + 1000, projectTitle: `Earlier project ${index}` })), thread];
-    await artist.route('**/api/collaborations', route => route.fulfill({ json: { items: rows, nextCursor: null } }));
-    await artist.goto('/collaborations'); await artist.getByRole('button', { name: 'Sent', exact: true }).click();
+    const card = {...thread, kind:'collaboration',counterpartId:thread.ownerId,counterpartName:thread.ownerName,context:'Shared workspace · Verse',admission:'accepted',legacy:true,direction:'sent',workStatus:'discussion',unreadCount:0,lastActivityId:null};
+    const rows = [...Array.from({ length: 20 }, (_, index) => ({ ...card, id: index + 1000, context: `Earlier project ${index}` })), card];
+    await artist.route('**/api/messages?*', route => route.fulfill({ json: { items: rows, nextCursor: null } }));
+    await artist.goto('/collaborations');
     const link = artist.getByRole('link', { name: /Shared workspace · Verse/ }); await link.scrollIntoViewIfNeeded();
     const position = () => artist.evaluate(() => ({ window: scrollY, body: document.body.scrollTop, shell: document.querySelector('.shell-page')?.scrollTop ?? 0 }));
     const before = await position(); expect(before.window + before.body + before.shell).toBeGreaterThan(300);
-    await link.click(); await artist.getByRole('link', { name: 'All collaborations', exact: true }).click();
-    await expect(artist.getByRole('button', { name: 'Sent', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await link.click(); await artist.getByRole('link', { name: 'All messages', exact: true }).click();
+    await expect(artist.getByRole('button', { name: 'Conversations', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect.poll(position).toEqual(before);
     await page.goto(`/project/${project.id}`); await page.getByRole('button', { name: 'Edit offer', exact: true }).click();
     await page.getByRole('textbox', { name: 'Expected deliverable', exact: true }).fill('Preserved edit of the brief.');

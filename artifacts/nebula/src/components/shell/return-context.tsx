@@ -4,9 +4,9 @@ import { useNavigationSafety } from './navigation-guard';
 import { useAuth } from '@/context/AuthContext';
 
 type Position = { window: number; shell: number; page: number; focus?: string };
-type Memory = { trail: string[]; positions: Map<string, Position>; values: Map<string, unknown> };
+type Memory = { trail: string[]; returning: boolean; positions: Map<string, Position>; values: Map<string, unknown> };
 const Context = createContext<Memory | null>(null);
-const empty = (): Memory => ({ trail: [], positions: new Map(), values: new Map() });
+const empty = (): Memory => ({ trail: [], returning: false, positions: new Map(), values: new Map() });
 
 /** Per-account, in-memory UI context, never credentials, media or server records. */
 export function ReturnContext({ children }: { children: ReactNode }) {
@@ -18,7 +18,8 @@ export function ReturnContext({ children }: { children: ReactNode }) {
   const current = useRef(''), previousIndex = useRef<number>(Number(history.state?.__nebulaNavigationIndex ?? 0));
   if (current.current !== route || !memory.trail.length) {
     const index = Number(history.state?.__nebulaNavigationIndex ?? 0);
-    const returning = history.state?.__nebulaReturn || index < previousIndex.current;
+    const returning = !!history.state?.__nebulaReturn || index < previousIndex.current;
+    memory.returning = returning;
     const previous = returning ? memory.trail.lastIndexOf(route) : -1;
     const trail = !returning && index === previousIndex.current ? memory.trail.slice(0, -1) : memory.trail;
     memory.trail = previous >= 0 ? memory.trail.slice(0, previous + 1) : returning ? [route] : [...trail.slice(-49), route];
@@ -62,6 +63,11 @@ export function ReturnContext({ children }: { children: ReactNode }) {
     return () => { observer.disconnect(); cancelAnimationFrame(frame); clearTimeout(timeout); document.removeEventListener('scroll', capture, true); document.removeEventListener('click', capture, true); document.removeEventListener('wheel', stop); document.removeEventListener('touchstart', stop); document.removeEventListener('keydown', stop); };
   }, [route, memory, path]);
   return <Context.Provider value={memory}>{children}</Context.Provider>;
+}
+
+/** Distinguish returning to a saved view from entering an explicit shared link. */
+export function useIsReturnNavigation() {
+  return useContext(Context)?.returning ?? false;
 }
 
 export function useReturnDestination(fallback: string) {

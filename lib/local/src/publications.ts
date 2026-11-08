@@ -2,6 +2,7 @@ import type { CollaborationOffer } from './collaborations.js';
 import type { Project } from './types.js';
 
 export type PublicationInput = {
+  workId?: number | null;
   remix?: RemixInput | null;
   title: string;
   description: string;
@@ -15,6 +16,7 @@ export type RemixInput = { contributionKind?: 'audio' | 'video'; sourceId: numbe
 export type RemixAttribution = RemixInput & { artistId: number; artistName: string; title: string; projectId: number | null; grantedAt: string; available: boolean };
 export type UploadedMedia = { id: string; name?: string; kind: 'audio' | 'video' | 'image' | 'document' | 'archive'; mime: string; size: number; url: string };
 export type Publication = PublicationInput & {
+  song?: import('./works.js').Song | null;
   remix?: RemixAttribution | null;
   id: number;
   artistId: number;

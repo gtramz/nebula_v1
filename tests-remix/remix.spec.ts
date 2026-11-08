@@ -76,14 +76,15 @@ test('audio mix contains both tracks, survives editable draft reload, credits th
     await expect(artist.getByRole('button',{name:'Publish remix',exact:true})).toHaveCount(0);
     await artist.getByRole('link',{name:'Propose to original project',exact:true}).click();
     await artist.getByRole('button',{name:'Submit proposal',exact:true}).click();
-    await expect(artist).toHaveURL(/\/collaborations\/\d+\?draft=[a-f0-9-]+$/);
-    const workspace = new URL(artist.url()).pathname;
+    await expect(artist).toHaveURL(/\/messages\/offer\/\d+\?draft=[a-f0-9-]+$/);
+
     await artist.getByRole('button', { name: 'Use saved remix', exact: true }).click();
+    await artist.getByLabel('Introduction',{exact:true}).fill('A remix contribution for your project.');
     await artist.getByLabel('Your proposal', { exact: true }).fill('My new interpretation for this project.');
     await artist.getByRole('checkbox', { name: 'I reviewed the current deliverable, compensation and terms.', exact: true }).check();
-    await expect(artist.getByRole('button', { name: 'Send proposal', exact: true })).toBeEnabled(); await artist.getByRole('button', { name: 'Send proposal', exact: true }).click();
+    await expect(artist.getByRole('button', { name: 'Send request', exact: true })).toBeEnabled(); await artist.getByRole('button', { name: 'Send request', exact: true }).click();
     await expect(artist.getByRole('form', { name: 'Proposal form', exact: true })).toHaveCount(0);
-    await page.goto(workspace);
+    await expect(artist).toHaveURL(/\/messages\/collaboration\/\d+$/);await page.goto(new URL(artist.url()).pathname);
     await expect(page.getByText('My real remix · Remix of Open original by Original Artist', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Accept proposal', exact: true })).toBeVisible();
     expect(errors).toEqual([]);
@@ -178,15 +179,16 @@ test('video original composes real frames and sound, preserves draft credit and 
     await previewReady(artist);
     await artist.getByRole('button',{name:'Save remix draft',exact:true}).click();await expect(artist.getByText('Remix draft saved',{exact:true})).toBeVisible();
     await artist.getByRole('link',{name:'Propose to original project',exact:true}).click();await artist.getByRole('button',{name:'Submit proposal',exact:true}).click();
-    await expect(artist).toHaveURL(/\/collaborations\/\d+\?draft=[a-f0-9-]+$/);
-    const workspace=new URL(artist.url()).pathname;
+    await expect(artist).toHaveURL(/\/messages\/offer\/\d+\?draft=[a-f0-9-]+$/);
+
     await artist.getByLabel('Work files (audio, video, PDF or ZIP)',{exact:true}).setInputFiles({name:'Credits.pdf',mimeType:'application/pdf',buffer:Buffer.from('%PDF-1.7\nTest credits document\n%%EOF')});
     await expect(artist.getByRole('link',{name:'Download Credits.pdf',exact:true})).toBeVisible();
     await artist.getByRole('button',{name:'Use saved remix',exact:true}).click();
     await expect(artist.getByRole('link',{name:'Download Credits.pdf',exact:true})).toBeVisible();
+    await artist.getByLabel('Introduction',{exact:true}).fill('A remix contribution for your project.');
     await artist.getByLabel('Your proposal',{exact:true}).fill('Video performance and credits');await artist.getByRole('checkbox',{name:'I reviewed the current deliverable, compensation and terms.',exact:true}).check();
-    await artist.getByRole('button',{name:'Send proposal',exact:true}).click();await expect(artist.getByRole('form',{name:'Proposal form',exact:true})).toHaveCount(0);
-    await page.goto(workspace);await expect(page.getByText('My video remix · Remix of Open original by Original Artist',{exact:true})).toBeVisible();await expect(page.getByRole('link',{name:'Download Credits.pdf',exact:true})).toBeVisible();
+    await artist.getByRole('button',{name:'Send request',exact:true}).click();await expect(artist.getByRole('form',{name:'Proposal form',exact:true})).toHaveCount(0);
+    await expect(artist).toHaveURL(/\/messages\/collaboration\/\d+$/);await page.goto(new URL(artist.url()).pathname);await expect(page.getByText('My video remix · Remix of Open original by Original Artist',{exact:true})).toBeVisible();await expect(page.getByRole('link',{name:'Download Credits.pdf',exact:true})).toBeVisible();
     expect(errors).toEqual([]);
   } finally {await context.close();}
 });

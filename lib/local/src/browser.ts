@@ -105,7 +105,7 @@ async function lock<T>(action: () => T | Promise<T>): Promise<T> {
 
 function makeBrowserStore() {
   const store = createLocalStore(window.localStorage, window.sessionStorage);
-  const writes = ['register', 'login', 'logout', 'reset', 'clearDemoData', 'updateArtist', 'createProject', 'updateProject', 'deleteProject', 'createInvestment', 'updateProjectVisibility', 'toggleProjectSupport'] as const;
+  const writes = ['register', 'login', 'logout', 'reset', 'clearDemoData', 'updateArtist', 'updateArtistIdentity', 'updateMyArtistPreferences', 'createProject', 'updateProject', 'deleteProject', 'createInvestment', 'updateProjectVisibility', 'toggleProjectSupport'] as const;
   type AsyncWrites = { [K in typeof writes[number]]: (...args: Parameters<typeof store[K]>) => Promise<Awaited<ReturnType<typeof store[K]>>> };
   const locked = Object.fromEntries(writes.map(name => [name, (...args: unknown[]) => lock(() => (store[name] as (...args: unknown[]) => unknown)(...args))])) as AsyncWrites;
   window.addEventListener('storage', event => {

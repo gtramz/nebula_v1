@@ -1,3 +1,6 @@
+import { SongFields, SongManager } from '@/features/songs';
+import { musicalProject, type SongEntry, type ProjectUpdate } from '@nebula/local';
+import { ArtistIdentityEditor, ArtistCompletionPrompt } from '@/features/artist-identity/editor';
 import { useLeaveGuard } from '@/components/shell/navigation-guard';
 import { useRef, useState } from "react";
 import { ImageUpload } from "@/components/image-upload";
@@ -6,8 +9,8 @@ import {
   useLogout,
   isServerMode,
   useAuthEvents,
-  useUpdateArtistProfile,
-  type ArtistProfileInput,
+  creativeRoleTaxonomy,
+  musicalGenreTaxonomy,
   useListProjects,
   useCreateProject,
   useUpdateProject,
@@ -18,6 +21,7 @@ import {
   ProjectInputCurrency,
 } from "@nebula/local";
 import { ContentWidth } from "@/components/shell/app-shell";
+import { MoreMenu } from "@/components/shell/more-menu";
 import { LogOut, Plus, Edit2 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
@@ -32,7 +36,10 @@ export default function Profile() {
   if (!isAuthenticated || !user) {
     return (
       <ContentWidth className="py-16 space-y-6">
-        <h1 className="text-4xl font-bold text-ink">your profile</h1>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <h1 className="text-4xl font-bold text-ink">your profile</h1>
+          <div className="md:hidden"><MoreMenu /></div>
+        </div>
         <p className="text-muted">choose a profile to try the artist or investor experience.</p>
         <div className="flex flex-wrap gap-4">
           <Link href="/login" className="bg-cream px-6 py-3 text-sm font-bold text-bg">log in</Link>
@@ -53,16 +60,19 @@ export default function Profile() {
   return (
     <div data-page-scroll className="flex-1 overflow-y-auto">
       <ContentWidth className="py-12 space-y-12 px-4 lg:px-0">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <h1 className="text-4xl font-display font-bold text-ink text-veil">
             Profile
           </h1>
+          <div className="flex items-center gap-2">
           <button
             onClick={handleLogout}
-            className="flex items-center gap-2 text-muted hover:text-danger transition voice text-xs cursor-pointer"
+            className="hidden min-h-11 min-w-11 items-center justify-center gap-2 rounded-lg px-3 text-muted hover:text-danger transition voice text-xs cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent md:inline-flex"
           >
             <LogOut className="w-4 h-4" /> LOGOUT
           </button>
+          <div className="md:hidden"><MoreMenu logout={{ onSelect: handleLogout, isPending: logout.isPending }} /></div>
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row items-center gap-6 p-8 glass-band rounded-[32px] text-center sm:text-left shadow-lg">
@@ -147,7 +157,8 @@ function InvestorDashboard() {
 
 function ArtistDashboard() {
   const { user } = useAuth();
-  const [editingArtist, setEditingArtist] = useState(false);
+  const [, navigate] = useLocation();
+  const [editingArtist, setEditingArtist] = useState(() => new URLSearchParams(window.location.search).get('edit') === '1');
   const queryClient = useQueryClient();
   const [editingProject, setEditingProject] = useState<Project | "new" | null>(
     null,
@@ -167,7 +178,7 @@ function ArtistDashboard() {
     projects?.filter((p) => p.artistId === user?.artistId) || [];
 
   if (editingArtist) {
-    return <ArtistEditor onClose={() => setEditingArtist(false)} />;
+    return <ArtistIdentityEditor onClose={() => { setEditingArtist(false); if (window.location.search) navigate('/profile', { replace: true }); }} />;
   }
 
   if (editingProject) {
@@ -181,6 +192,8 @@ function ArtistDashboard() {
 
   return (
     <div className="space-y-12 pb-24">
+      <ArtistCompletionPrompt />
+      <Link href={`/artist/${user!.artistId}`} className="inline-flex min-h-11 items-center text-accent underline">View public profile</Link>
       {isServerMode() && <Link href="/collaborations" className="block border border-border p-6 hover:bg-surfaceAlt"><h2 className="text-xl font-bold">Collaborations</h2><p className="text-sm text-muted mt-2">Review proposals, send messages and manage deliveries.</p></Link>}
       {isServerMode() && <Link href="/studio" className="block border border-border p-6 hover:bg-surfaceAlt">
         <h2 className="text-xl font-bold">Your publications</h2><p className="text-sm text-muted mt-2">Upload audio or video, manage drafts and choose your remix permissions.</p>
@@ -204,10 +217,14 @@ function ArtistDashboard() {
         {user?.artist && (
           <div className="p-6 glass-band rounded-[32px] space-y-6">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              <div className="col-span-2 md:col-span-4">
+                <p className="voice text-[10px] text-muted mb-1.5">CREATIVE ROLES</p>
+                <p className="text-ink font-medium">{user.artist.creativeRoles?.map(id => creativeRoleTaxonomy.find(role => role.id === id)?.label ?? id).join(', ') || '—'}</p>
+              </div>
               <div>
-                <p className="voice text-[10px] text-muted mb-1.5">GENRE</p>
+                <p className="voice text-[10px] text-muted mb-1.5">MUSICAL GENRES</p>
                 <p className="text-ink font-medium">
-                  {user.artist.genre || "—"}
+                  {user.artist.genreIds?.map(id => musicalGenreTaxonomy.find(genre => genre.id === id)?.label ?? id).join(', ') || "—"}
                 </p>
               </div>
               <div>
@@ -309,11 +326,15 @@ function ProjectEditor({
     coverUrl: project?.coverUrl || "",
   });
 
+  const [songs,setSongs]=useState<SongEntry[]>([]);
+  const [songEditing,setSongEditing]=useState({dirty:false,busy:false});
+  const createOperation=useRef({key:'',id:''});
+  const baseline=useRef(formData);
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (project) {
       updateProject.mutate(
-        { id: project.id, data: formData },
+        { id: project.id, data: { ...Object.fromEntries(Object.entries(formData).filter(([key,value])=>JSON.stringify(value)!==JSON.stringify((baseline.current as unknown as Record<string,unknown>)[key]))), expected: project } as ProjectUpdate },
         {
           onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["projects"] });
@@ -322,8 +343,9 @@ function ProjectEditor({
         },
       );
     } else {
+      const key=JSON.stringify({formData,songs});if(createOperation.current.key!==key)createOperation.current={key,id:crypto.randomUUID()};
       createProject.mutate(
-        { data: formData },
+        { data: { ...formData, ...(isServerMode()?{operationId:createOperation.current.id,...(musicalProject(formData.category)?{songs}: {})}:{}) } },
         {
           onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["projects"] });
@@ -350,12 +372,13 @@ function ProjectEditor({
 
   const isPending = createProject.isPending || updateProject.isPending;
   const initial = useRef(JSON.stringify(formData));
-  useLeaveGuard(isPending || initial.current !== JSON.stringify(formData) ? 'Leave without saving your project changes?' : null);
+  useLeaveGuard(isPending || initial.current !== JSON.stringify(formData) || songs.length > 0 ? 'Leave without saving your project changes?' : null);
 
   return (
     <div className="glass-band rounded-[32px] p-6 lg:p-10 space-y-8 animate-fade-in relative border-accent/10 shadow-2xl">
       <button
         onClick={onClose}
+        disabled={songEditing.busy}
         className="absolute top-6 right-8 text-muted hover:text-cream text-[10px] voice cursor-pointer p-2"
       >
         CANCEL
@@ -477,16 +500,17 @@ function ProjectEditor({
           onChange={(coverUrl) => setFormData({ ...formData, coverUrl })}
         />
 
+        {!project && isServerMode() && musicalProject(formData.category) && <><p className="text-sm text-muted">Songs will follow your project's visibility when you save.</p><SongFields value={songs} onChange={setSongs} disabled={isPending}/></>}
         {(createProject.error || updateProject.error || deleteProject.error) && (
           <p role="alert" className="text-sm text-danger">
-            {(createProject.error || updateProject.error || deleteProject.error)?.message}
+        {(createProject.error || updateProject.error || deleteProject.error)?.message}
           </p>
         )}
 
         <div className="flex flex-col sm:flex-row gap-4 pt-6 border-t border-white/5">
           <button
             type="submit"
-            disabled={isPending}
+            disabled={isPending || songEditing.dirty || songEditing.busy}
             className="flex-1 py-4 bg-cream text-bg rounded-full font-bold voice text-xs hover:bg-white transition disabled:opacity-50 cursor-pointer shadow-lg"
           >
             {isPending ? "SAVING..." : "SAVE PROJECT"}
@@ -495,7 +519,7 @@ function ProjectEditor({
             <button
               type="button"
               onClick={handleDelete}
-              disabled={deleteProject.isPending}
+              disabled={deleteProject.isPending || songEditing.busy}
               className="py-4 px-8 glass-band-strong text-danger border-danger/20 rounded-full font-bold voice text-xs hover:bg-danger/10 transition disabled:opacity-50 cursor-pointer"
             >
               DELETE
@@ -503,55 +527,8 @@ function ProjectEditor({
           )}
         </div>
       </form>
+      {songEditing.dirty && <p className="text-sm text-muted">Save or reload your song-list changes before saving project details.</p>}
+      {project && isServerMode() && musicalProject(project.category) && <SongManager projectId={project.id} status={project.status} onStateChange={setSongEditing}/>}
     </div>
-  );
-}
-
-function ArtistEditor({ onClose }: { onClose: () => void }) {
-  const { user } = useAuth();
-  const updateArtist = useUpdateArtistProfile();
-  const [profile, setProfile] = useState<ArtistProfileInput>({
-    name: user?.artist?.name ?? '',
-    genre: user?.artist?.genre ?? '',
-    basedIn: user?.artist?.basedIn ?? '',
-    bio: user?.artist?.bio ?? '',
-    recordLabel: user?.artist?.recordLabel ?? '',
-    picture: user?.artist?.picture ?? null,
-  });
-  const initial = useRef(JSON.stringify(profile));
-  useLeaveGuard(updateArtist.isPending || initial.current !== JSON.stringify(profile) ? 'Leave without saving your profile changes?' : null);
-  const fieldClass = 'w-full bg-surfaceAlt border border-border px-5 py-4 text-ink outline-none focus:border-accent';
-
-  return (
-    <section className="glass-band p-6 lg:p-10 space-y-8">
-      <div className="flex items-center justify-between gap-4">
-        <h2 className="text-2xl font-bold text-ink">edit artist profile</h2>
-        <button type="button" onClick={onClose} className="text-xs voice text-muted hover:text-ink">cancel</button>
-      </div>
-      <form className="space-y-6" onSubmit={(event) => {
-        event.preventDefault();
-        updateArtist.mutate({ data: profile }, { onSuccess: onClose });
-      }}>
-        {([
-          ['name', 'artist name'], ['genre', 'genre'], ['basedIn', 'based in'], ['recordLabel', 'record label'],
-        ] as const).map(([key, label]) => (
-          <label key={key} className="block space-y-2">
-            <span className="voice text-[10px] text-muted">{label}</span>
-            <input value={profile[key] ?? ''} maxLength={120} required={key === 'name'} className={fieldClass}
-              onChange={(event) => setProfile({ ...profile, [key]: event.target.value })} />
-          </label>
-        ))}
-        <label className="block space-y-2">
-          <span className="voice text-[10px] text-muted">bio</span>
-          <textarea rows={4} maxLength={4000} value={profile.bio ?? ''} className={fieldClass}
-            onChange={(event) => setProfile({ ...profile, bio: event.target.value })} />
-        </label>
-        <ImageUpload label="PROFILE IMAGE" value={profile.picture} onChange={(picture) => setProfile({ ...profile, picture })} />
-        {updateArtist.error && <p role="alert" className="text-sm text-danger">{updateArtist.error.message}</p>}
-        <button type="submit" disabled={updateArtist.isPending} className="w-full bg-cream py-4 text-xs font-bold text-bg voice disabled:opacity-50">
-          {updateArtist.isPending ? 'saving...' : 'save profile'}
-        </button>
-      </form>
-    </section>
   );
 }

@@ -2,8 +2,8 @@ import { Link } from "wouter";
 import { UserCircle } from "lucide-react";
 import { AntiqLogo } from "@/components/antiq-logo";
 import { useAuth } from "@/context/AuthContext";
-import { MoreMenu } from './more-menu';
 import { NotificationBell } from '@/features/notifications';
+import { projectDestination } from './project-destination';
 
 export function MobileHeader() {
   const { user, isAuthenticated } = useAuth();
@@ -13,7 +13,7 @@ export function MobileHeader() {
       <div className="mx-auto flex w-full items-center justify-between gap-4">
         <Link
           href="/explore"
-          aria-label="go to explore"
+          aria-label={`go to ${projectDestination(user?.role).toLowerCase()}`}
           className="flex min-h-11 min-w-0 items-center gap-2 text-ink"
         >
           <AntiqLogo className="h-8 w-5" imageScaleClass="h-[272%] w-auto" />
@@ -21,16 +21,7 @@ export function MobileHeader() {
         </Link>
 
         <div className="flex min-w-0 items-center gap-2"><NotificationBell />
-        {isAuthenticated && user ? (
-          <Link
-            href="/profile"
-            aria-label="open your profile"
-            className="flex min-h-11 min-w-11 items-center gap-2 text-muted transition-colors hover:text-ink"
-          >
-            <span className="max-w-[4rem] truncate text-right text-[10px] voice">{user.name}</span>
-            <UserCircle className="h-5 w-5 shrink-0" strokeWidth={1.5} />
-          </Link>
-        ) : (
+        {!isAuthenticated && (
           <>
           <Link
             href="/login"
@@ -42,7 +33,6 @@ export function MobileHeader() {
           <Link href="/register" className="flex min-h-11 items-center text-[10px] voice text-ink">sign up</Link>
           </>
         )}
-        <MoreMenu />
         </div>
       </div>
     </header>

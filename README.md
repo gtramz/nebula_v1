@@ -1,142 +1,66 @@
-# nebula_v1
+# Antiq Nebula
 
-Nebula's complete interface and browser-only functional shell.
+A React/Tailwind application with a **persistent local mock backend**, prepared for Manuel to connect to Antiq's existing central system. It is not connected to production Antiq identity, storage, payments or royalties.
 
-## Private remix workspace
+## Run the integrated review environment
 
-New remixes use `/studio/remix`: private editable drafts, durable tracks and settings, and proposal-only sharing of final mixes. Public release of new remixes is deferred. Existing published remixes are preserved. See [private remix implementation and API contracts](docs/private-remix-handoff.md).
-
-## Persistent server and publications
-
-`pnpm build && pnpm start` runs the shared local server on
-`http://127.0.0.1:4174`. Accounts, projects and publications persist in SQLite;
-uploaded media persists on disk. Artists can use **Profile → Your publications**
-to upload, draft, publish, edit and withdraw posts. Discovery shows real posts;
-its separate demo is available at `/discovery?demo=1`.
-
-See [server setup, migration, deployment and backups](server/README.md).
-The browser-only prototype described below remains available via `pnpm preview`
-on 4173 for isolated demos and regression testing. Its storage and auth behavior
-do not describe the persistent server mode.
-
-## Run
-
-Use Node.js 24.17.0 or newer and pnpm 11.21.0.
+Use Node >=24.17, pnpm 11.21.0, FFmpeg and FFprobe. From the repository root:
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm dev
-```
-
-Open the local address printed in the terminal.
-
-```sh
 pnpm build
-pnpm preview
+pnpm start
 ```
 
-The production files are in `artifacts/nebula/dist/public` and can be served as a static site with an SPA fallback.
+Open <http://127.0.0.1:4174>. The same process serves the UI, API and authorized media. Accounts and product data persist in SQLite; uploads remain on disk under `.data/server`. The directory is ignored by Git. **Cloning this public repository does not copy anybody's account, uploads or private messages.**
 
-## Included flows
+For configuration, safe backups, restoration, media tools and deployment preparation, see [server operations](server/README.md). For the complete return handoff, read [Manuel's release handoff](docs/manuel-release-handoff.md) and [operation contracts](docs/integration-contracts.md). [Resumen para Manuel en español](docs/cambios-para-manuel.md).
 
-- Landing screen, desktop and mobile navigation, and animated registration.
-- Artist and investor profile creation, sign-in, sign-out and reset.
-- Artist profile editing and images selected from the device.
-- Project creation, editing, deletion, draft and funding states.
-- Discovery demo feed, plus the separate Explore project catalog, categories, artist pages and search.
-- Symbolic artist support, contribution previews, pledge history and receipts.
+## Environments and routes
 
-All new projects and pledges use **USD only**, with two decimal places. Removing a
-project hides it from Explore and stops contributions, while preserving its
-pledges, receipts and historical funding totals. A receipt for a removed project
-links back to pledge history.
+| Environment | Purpose |
+| --- | --- |
+| `pnpm dev`, 5173 | Isolated browser-only prototype; no implicit API proxy. |
+| `pnpm preview`, 4173 | Static browser-only preview; not backend integration evidence. |
+| `pnpm start`, 4174 | Primary persistent local mock review environment. |
+| Playwright integrated suites, 4175 | Automatically created disposable database and files; run suites sequentially. |
 
-Investors use **Pledges** (`/pledges`) for a private history grouped by project,
-with individual receipts and public visibility settings. Artists use **Received**
-(`/received`) for contributions to their own projects, including removed projects.
-Both views have project, date and availability filters.
+The integrated server stamps the HTML with its data mode. Failed API calls never fall back silently to demo records. The browser-only prototype uses separate local/session storage and does not implement every connected feature.
 
-Public project pages show one entry per investor, combining repeat contributions.
-Name and cumulative amount are independently opt-in and hidden by default. Settings
-apply to all of an investor's contributions to that project, including earlier ones.
-The recipient artist still sees the name and individual amounts in private history.
-Public totals and backer counts stay visible, so individual amounts may be inferred
-when a project has very few contributors. Lists initially show ten public backers,
-with a control to reveal more. Individual transactions remain separate privately.
+## Current product
 
-Accounts, artist profiles and USD records are saved in this browser's localStorage
-under `nebula-usd-preview`. They survive closing and reopening tabs. Sessions use
-`nebula-session` in sessionStorage, allowing independent artist/investor sessions.
-Use the same browser profile and origin (host and port). Clearing browser site data
-or ending private browsing can remove these records; this is not server-backed auth.
+- **Artist / visitor Home** at `/explore`: eligible projects with active creative offers or funding; contextual search, autocomplete, per-identity search history, multi-dimension filters, For You, Recently created and Following. Investor Explore retains the project catalog. `/` remains the public landing page.
+- **Global Search** at `/search`: artists and public projects, distinct from Home's opportunity search. Both resolve the artist's structured genres while preserving legacy text provenance.
+- **Discovery** at `/discovery`: audio/video publications, stars, comments, saves, sharing, contextual project/offer access and private Remix entry. Mobile fills the space above navigation. `/discovery?demo=1` is a separate, labeled sample feed.
+- **Identity**: automatic role detection on login; Artist onboarding, multiple creative roles/genres, public professional profile and private preferences. Concurrent profile edits merge unrelated fields and reject conflicting changes.
+- **Social graph**: real Artist follow/unfollow, counts, paginated public lists and Following in Home. Follow notifications are transactional, recipient-scoped and deduplicated by relationship occurrence.
+- **Messages**: one inbox for general requests and offer-based proposals. Recipients accept/reject requests before general conversation. Existing collaborations retain files, terms, revisions and their original authorized routes.
+- **Projects and songs**: ordered reusable songs within Single/EP/Album projects; optional song-scoped offers and publications; stable contextual links. Songs are metadata, not a new audio player or royalty ledger.
+- **Private Remix** at `/studio/remix`: resumable owner-bound settings, contributions and renders, waveform clip selection and audio/video mixing. Only a submitted final mix is shared with authorized collaboration participants. No new public remix publishing; historical published remixes remain intact.
+- **Notifications**: one in-screen panel, persistent read state and typed collaboration/profile/conversation destinations. `/notifications` remains a compatible direct entry. Polling is not real-time push.
+- **USD previews**: private Investor Pledges and Artist Received history, receipts and independently opt-in public identity/amount. These are simulated contributions, not money movement. Removing a project preserves its financial history.
 
-Startup imports existing USD tab data and valid identities from the obsolete demo.
-Original snapshots remain untouched. Obsolete projects and transactions are not
-imported. Import markers prevent duplication and resurrection after demo cleanup;
-conflicting credentials or damaged imports stop with a backup/retry screen rather
-than overwriting accounts. First USD import preserves project/receipt IDs; merging
-independent snapshots remaps colliding IDs. Web Locks serialize all writes, and
-storage events refresh other tabs without changing their signed-in identity.
+Navigation uses a 240/72 px desktop sidebar, a 72 px tablet sidebar and mobile bottom navigation. Mobile Profile contains More, Logout and the existing Contributions received access; desktop keeps its controls. Contextual returns preserve relevant filters, drafts and active feed position.
 
-Login uses only email and password and detects the profile automatically. Role
-selection is available only at signup; new registrations require a unique email.
-Legacy duplicate emails remain intact: a unique password match selects the profile,
-while multiple matches require account recovery rather than guessing a role. Account activity displays the user's most recent
-20 events from a browser-wide bounded log of 200 events; no passwords are logged.
-**Clear demo data** removes projects, pledges and supports across tabs while keeping
-accounts and artist profiles. Recovery of corrupted persistent data still offers
-an explicit full reset after a backup. Backups contain private profile data.
-The demo's visibility controls are UI behavior, not server security.
-
-All actions are interface previews. Profiles are not real service accounts and contribution previews do not move money. There is no application server, database service, payment service, identity provider, telemetry, API client, remote media or remote font loading. The page policy blocks fetch, XHR, WebSockets and frames. Standard packages are downloaded during installation and then bundled locally.
-
-## Checks
-
-### Discovery prototype
-
-`/discovery` is a presentation-only vertical feed with three clearly labeled
-samples: a video linked to a project with collaboration offers, standalone audio,
-and an attributed remix. Project details open beside the feed on desktop or in a
-bottom sheet on mobile. `/explore` remains the existing project catalog.
-
-Stars, saves and new comments live only in component memory and reset on reload
-or leaving Discovery. They never write to the account/project/history store.
-Visitors can browse and read comments; signed-in artists and investors can react,
-comment and copy sample links. Remix previews are artist-only and respect each
-sample author's permission. Recording, publishing, messaging, submissions,
-agreements and star-based distribution are not implemented in this stage.
-
-Only the active media can play. Video enters muted; audio requires a play gesture.
-Panels and hidden tabs pause playback; closing a panel does not resume it.
-Reduced-motion users start video manually. Shared links use
-`/discovery?post=after-hours`, `soft-signal`, or `after-hours-rework`; localhost
-links are only usable where the application is running.
-
-Media assets in `artifacts/nebula/public/discovery-demo` are original synthesized
-tones and abstract canvas animation, with no third-party recordings or downloads.
-They are committed as static assets; generating them is not required for builds.
-To regenerate using the existing Playwright dependency and local Chrome:
-
-```sh
-node scripts/generate-discovery-media.mjs
-```
-
-### Validation
+## Validation
 
 ```sh
 pnpm test
+pnpm test:server
 pnpm build
 pnpm test:browser
+pnpm test:shared
+pnpm test:collaborations
+pnpm test:remix
+pnpm exec playwright test --config playwright.discovery.config.ts
+pnpm exec playwright test --config playwright.return.config.ts
+pnpm exec playwright test --config playwright.performance.config.ts
 ```
 
-The browser checks use a local installation of Google Chrome. They cover desktop
-and mobile flows, including offline account/project behavior and Discovery's
-playback, role restrictions, temporary interactions, panels and keyboard access.
+Browser suites use locally installed Chrome; cross-browser suites also require Playwright WebKit (`pnpm exec playwright install webkit`). Run integrated suites sequentially. The `test:shared`, `test:collaborations` and `test:remix` scripts create a fresh test server per specification to respect the real registration rate limiter. Direct Playwright commands spanning many specifications should be split similarly. `NEBULA_TEST_PUBLIC_DIR` selects a staged build; `NEBULA_TEST_SERVER_MODULE` selects an explicitly compiled baseline for controlled comparisons. Both are test-only options and always use temporary data.
 
-## Source layout
+## Boundaries
 
-- `artifacts/nebula`: interface and local assets.
-- `lib/local`: persistent browser storage, local interactions, types and React hooks.
-- `tests`: browser verification.
+The local service is single-process. Production central identity/storage integration, password recovery/email verification, moderation, malware scanning, legal agreements, payments and royalty settlement remain separate. Following and preference-based Home ranking are implemented; they are not substitutes for Antiq's central services or a machine-learning recommendation engine. Combined/negotiable compensation and project-specific genre metadata are not fabricated.
 
-Author: **manuellcossio**.
+Source: `artifacts/nebula` (UI), `lib/local` (types, adapters and browser prototype), `server` (local mock API), `tests*` (isolated validation). Historical phase handoffs in `docs` describe their respective releases; the consolidated release handoff takes precedence for current status.

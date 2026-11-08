@@ -1,11 +1,19 @@
 import { useViewState } from '@/components/shell/return-context';
-import { useListProjects } from "@nebula/local";
+import { isServerMode, useListProjects } from "@nebula/local";
+import { useAuth } from '@/context/AuthContext';
+import { OpportunityHome } from '@/features/opportunities';
 import { ContentWidth } from "@/components/shell/app-shell";
 import { ProjectCard } from "@/components/project-card";
 
 const CATEGORIES = ["all", "album", "ep", "single", "tour", "video"];
 
 export default function Explore() {
+  const { user, isLoading } = useAuth();
+  if (isLoading) return <p role="status" className="p-8">Loading…</p>;
+  return isServerMode() && user?.role !== 'investor' ? <OpportunityHome /> : <ProjectCatalog />;
+}
+
+function ProjectCatalog() {
   const [category, setCategory] = useViewState('explore-category', "all");
 
   const { data: projects, isLoading: projectsLoading, error, refetch } = useListProjects(

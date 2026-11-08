@@ -1,0 +1,7 @@
+.artist-profile-player { --post-color:#d9f947; }
+.artist-profile-player .discovery-media { display:flex; gap:0; }
+.artist-profile-player .discovery-audio-stage { flex:unset; container-type:normal; padding:0; }
+.artist-profile-player .discovery-cover { width:min(100%,300px); }
+.artist-profile-player .discovery-cover-fallback > span { font-size:28px; }
+.artist-profile-player .discovery-media-controls { width:100%; }
+.artist-profile-player .discovery-media-status { position:static; }

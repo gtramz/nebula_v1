@@ -7,38 +7,8 @@ import { join, resolve } from 'node:path';
 import { createNebulaServer } from '../dist-server/server/app.js';
 
 const audio = await readFile(new URL('../artifacts/nebula/public/discovery-demo/soft-signal.wav', import.meta.url));
-async function fixture(t, options = {}) {
-  const dataDir = await mkdtemp(join(tmpdir(), 'nebula-server-test-'));
-  let server, origin;
-  async function start() {
-    server = await createNebulaServer({ dataDir, publicDir: resolve('artifacts/nebula/dist/public'), ...options });
-    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-    origin = `http://127.0.0.1:${server.address().port}`;
-  }
-  async function stop() { await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }); }
-  await start();
-  t.after(async () => { await stop(); await rm(dataDir, { recursive: true, force: true }); });
-  function client() {
-    let cookie = '';
-    return {
-      async request(path, method = 'GET', body, headers = {}) {
-        const response = await fetch(origin + path, { method, headers: { Origin: origin, 'X-Nebula-Request': '1', ...(cookie ? { Cookie: cookie } : {}), ...(body && !Buffer.isBuffer(body) ? { 'Content-Type': 'application/json' } : {}), ...headers }, body: body === undefined ? undefined : Buffer.isBuffer(body) ? body : JSON.stringify(body) });
-        if (response.headers.get('set-cookie')) cookie = response.headers.get('set-cookie').split(';')[0];
-        return response;
-      },
-      async rpc(method, ...args) { return this.request('/api/rpc', 'POST', { method, args }); },
-      async register(name, role = 'artist') {
-        const response = await this.rpc('register', { name, email: `${name}@example.invalid`, password: 'preview123', role });
-        assert.equal(response.status, 200, await response.clone().text()); return response.json();
-      },
-      async upload(bytes = audio, kind = 'audio') {
-        const response = await this.request('/api/uploads', 'POST', bytes, { 'X-Media-Kind': kind, 'Content-Type': 'application/octet-stream' });
-        return response;
-      },
-    };
-  }
-  return { client, dataDir, restart: async () => { await stop(); await start(); }, get origin() { return origin; } };
-}
+import { fixture } from './test-fixtures.mjs';
+
 const postInput = (media, extra = {}) => ({ title: 'A real sound', description: 'Original publication', mediaId: media.id, coverId: null, projectId: null, allowRemix: false, status: 'draft', ...extra });
 
 test('durable accounts, private drafts, publishing, range playback and withdrawal across clients and restart', async t => {
@@ -206,7 +176,7 @@ test('server funding history remains USD, grouped publicly, private by account a
 });
 
 const offerInput = { need: 'Verse', deliverable: '16 bars and dry vocals', requirements: 'Original lyrics, one revision. Credit included.', deadline: null, compensation: { kind: 'split', percent: 15 }, status: 'open' };
-test('collaboration lifecycle, immutable proposal terms, private messages/media, revisions and restart', async t => {
+test('historical collaboration lifecycle, immutable proposal terms, private messages/media, revisions and restart', async t => {
   const app = await fixture(t), owner = app.client(), applicant = app.client(), other = app.client(), investor = app.client(), guest = app.client();
   await owner.register('CollabOwner'); await applicant.register('CollabArtist'); await other.register('CollabOther'); await investor.register('CollabInvestor','investor');
   const project = (await (await owner.rpc('createProject', { title: 'Open EP', category: 'EP', goalAmount: 1000, status: 'published' })).json()).result;
@@ -214,8 +184,8 @@ test('collaboration lifecycle, immutable proposal terms, private messages/media,
   assert.equal(offer.available,true);
   assert.equal((await investor.request(`/api/offers/${offer.id}/conversations`, 'POST', {})).status,403);
   assert.equal((await owner.request(`/api/offers/${offer.id}/conversations`, 'POST', {})).status,400);
-  const thread = await (await applicant.request(`/api/offers/${offer.id}/conversations`, 'POST', {})).json(), path = `/api/collaborations/${thread.id}`;
-  assert.equal((await (await applicant.request(`/api/offers/${offer.id}/conversations`, 'POST', {})).json()).id,thread.id);
+  const thread = await (await applicant.legacyConversation(offer.id)).json(), path = `/api/collaborations/${thread.id}`;
+  assert.equal((await (await applicant.legacyConversation(offer.id)).json()).id,thread.id);
   assert.equal((await other.request(path)).status,404); assert.equal((await guest.request(path)).status,401);
   await applicant.request(`${path}/messages`, 'POST', { text: 'Can I send Spanish vocals?' });
   await owner.request(`${path}/messages`, 'POST', { text: 'Yes, please.' });
@@ -235,7 +205,7 @@ test('collaboration lifecycle, immutable proposal terms, private messages/media,
   assert.equal(current.status,'changes_requested');
   current = await (await applicant.request(path, 'PATCH', { action:'submit', revision:current.revision, offerRevision:offer.revision, acceptTerms:true, text:'Revised proposal', mediaId:media.id })).json();
   assert.equal(current.terms.compensation.amount,250.25);
-  const second = await (await other.request(`/api/offers/${offer.id}/conversations`, 'POST', {})).json();
+  const second = await (await other.legacyConversation(offer.id)).json();
   current = await (await owner.request(path, 'PATCH', { action:'accept', revision:current.revision })).json(); assert.equal(current.status,'accepted');
   assert.equal((await (await other.request(`/api/collaborations/${second.id}`)).json()).status,'rejected');
   assert.equal((await (await guest.request(`/api/projects/${project.id}/offers`)).json()).length,0);
@@ -269,13 +239,13 @@ test('offer visibility, USD validation, ownership and stale terms are enforced',
   const project = (await (await owner.rpc('createProject',{title:'Draft collaboration',category:'EP',goalAmount:1000,status:'draft'})).json()).result;
   let offer = await (await owner.request(`/api/projects/${project.id}/offers`,'POST',offerInput)).json();
   assert.equal(offer.available,false); assert.equal((await guest.request(`/api/projects/${project.id}/offers`)).status,404);
-  assert.equal((await applicant.request(`/api/offers/${offer.id}/conversations`,'POST',{})).status,409);
+  assert.equal((await applicant.request(`/api/offers/${offer.id}/conversations`)).status,409);
   assert.equal((await applicant.request(`/api/offers/${offer.id}`,'PATCH',offer)).status,404);
   assert.equal((await owner.request(`/api/projects/${project.id}/offers`,'POST',{...offerInput,compensation:{kind:'fee',amount:100,currency:'MXN'}})).status,400);
   assert.equal((await owner.request(`/api/projects/${project.id}/offers`,'POST',{...offerInput,compensation:{kind:'split',percent:101}})).status,400);
   assert.equal((await owner.request(`/api/projects/${project.id}/offers`,'POST',{...offerInput,deadline:'2026-02-30'})).status,400);
   await owner.rpc('updateProject',project.id,{status:'published'});
-  const thread = await (await applicant.request(`/api/offers/${offer.id}/conversations`,'POST',{})).json();
+  const thread = await (await applicant.legacyConversation(offer.id)).json();
   const path=`/api/collaborations/${thread.id}`, media=await (await applicant.upload()).json();
   offer=await (await owner.request(`/api/offers/${offer.id}`,'PATCH',{...offer,requirements:'New terms'})).json();
   assert.equal((await applicant.request(path,'PATCH',{action:'submit',revision:thread.revision,offerRevision:1,acceptTerms:true,text:'My proposal',mediaId:media.id})).status,409);
@@ -297,8 +267,8 @@ test('notifications are private, paginated, durable and preserve arrivals after 
   assert.deepEqual(await (await owner.request('/api/notifications/summary')).json(),{unreadCount:0,latestId:null});
   const project = (await (await owner.rpc('createProject',{title:'Notice EP',category:'EP',goalAmount:1000,status:'published'})).json()).result;
   const offer = await (await owner.request(`/api/projects/${project.id}/offers`,'POST',offerInput)).json();
-  const thread = await (await applicant.request(`/api/offers/${offer.id}/conversations`,'POST',{})).json(), path=`/api/collaborations/${thread.id}`;
-  await applicant.request(`/api/offers/${offer.id}/conversations`,'POST',{});
+  const thread = await (await applicant.legacyConversation(offer.id)).json(), path=`/api/collaborations/${thread.id}`;
+  await applicant.legacyConversation(offer.id);
   assert.equal((await (await owner.request('/api/notifications/summary')).json()).unreadCount,1); // Existing conversation does not notify twice.
   assert.equal((await (await applicant.request('/api/notifications/summary')).json()).unreadCount,0); // No self-notification.
   for (let i=0;i<35;i++) assert.equal((await applicant.request(`${path}/messages`,'POST',{text:`Private message ${i}`})).status,201);
@@ -383,7 +353,7 @@ test('a private rendered remix shares only its final output through a proposal w
  const original=await(await owner.request('/api/publications','POST',postInput(base,{status:'published',allowRemix:true,projectId:project.id}))).json();
  let draft=await newDraft(artist,original);const own=await privateUpload(artist,draft),mix=await privateUpload(artist,draft);
  draft=await(await artist.request(`/api/remix-drafts/${draft.id}`,'PATCH',draftInput(draft,own,mix,{title:'My private remix'}))).json();
- const thread=await(await artist.request(`/api/offers/${offer.id}/conversations`,'POST',{})).json(),path=`/api/collaborations/${thread.id}`;
+ const thread=await(await artist.legacyConversation(offer.id)).json(),path=`/api/collaborations/${thread.id}`;
  const input={action:'submit',revision:thread.revision,offerRevision:offer.revision,acceptTerms:true,text:'My interpretation',mediaId:mix.id,mediaIds:[mix.id],remixDraftId:draft.id};
  assert.equal((await owner.request(mix.url)).status,404);
  assert.equal((await artist.request(path,'PATCH',{...input,remixDraftId:null})).status,400);
@@ -401,7 +371,7 @@ test('multi-file work preserves every revision, downloads names and keeps all at
   await owner.register('PackageOwner'); await artist.register('PackageArtist'); await outsider.register('PackageOutsider');
   const project = (await (await owner.rpc('createProject',{title:'Package project',category:'EP',goalAmount:1000,status:'published'})).json()).result;
   const offer = await (await owner.request(`/api/projects/${project.id}/offers`,'POST',offerInput)).json();
-  const thread = await (await artist.request(`/api/offers/${offer.id}/conversations`,'POST',{})).json(), path = `/api/collaborations/${thread.id}`;
+  const thread = await (await artist.legacyConversation(offer.id)).json(), path = `/api/collaborations/${thread.id}`;
   const upload = async (bytes, kind, name) => {
     const response = await artist.request('/api/uploads','POST',bytes,{'X-Media-Kind':kind,'X-File-Name':encodeURIComponent(name)}); assert.equal(response.status,201, await response.clone().text()); return response.json();
   };
@@ -482,4 +452,405 @@ test('waveform API requires artist access and current original permission even a
  post=await(await owner.request(`/api/publications/${post.id}`,'PATCH',{...post,allowRemix:false})).json();assert.equal((await artist.request(route)).status,404);
  post=await(await owner.request(`/api/publications/${post.id}`,'PATCH',{...post,allowRemix:true,status:'draft'})).json();assert.equal((await owner.request(route)).status,404);
  assert.equal((await guest.request(route)).status,401);
+});
+
+test('Home aggregates public opportunities without duplicates, respects lifecycle and preserves the catalog', async t => {
+  const app = await fixture(t), owner = app.client(), guest = app.client();
+  await owner.register('home-owner');
+  const create = async (title, status = 'published', category = 'EP') => (await (await owner.rpc('createProject', { title, category, goalAmount: 2000, status })).json()).result;
+  const creative = await create('Creative EP'), funding = await create('Funding EP', 'funding');
+  const plain = await create('Catalog only'), draft = await create('Private draft', 'draft'), closed = await create('Closed project', 'closed');
+  const expired = await create('Expired call'), archived = await create('Archived project', 'funding');
+  const add = async (project, input = offerInput) => (await (await owner.request(`/api/projects/${project.id}/offers`, 'POST', input)).json());
+  const first = await add(creative), second = await add(creative, { ...offerInput, need: 'Mix', compensation: { kind: 'fee', amount: 125, currency: 'USD' } });
+  await add(draft); await add(closed); const old = await add(expired); await add(archived);
+  await owner.rpc('deleteProject', archived.id);
+  // Expire the disposable fixture without depending on wall-clock waits.
+  const db = new DatabaseSync(join(app.dataDir, 'nebula.sqlite'));
+  db.prepare('UPDATE collaboration_offers SET data=? WHERE id=?').run(JSON.stringify({ ...offerInput, deadline: '2000-01-01' }), old.id); db.close();
+  const get = async (client = guest, query = '') => (await (await client.request('/api/opportunities/projects' + query)).json());
+  let page = await get(); assert.deepEqual(page.items.map(i => i.project.id), [funding.id, creative.id]);
+  assert.equal(page.items[1].offers.length, 2); assert.equal(page.items[1].offers[0].compensation.amount, 125);
+  assert.deepEqual(await get(owner), page, 'Owners must not see drafts or unavailable offers in Home');
+  await owner.request(`/api/offers/${first.id}`, 'PATCH', { action: 'close', revision: first.revision });
+  await owner.request(`/api/offers/${second.id}`, 'PATCH', { action: 'close', revision: second.revision });
+  assert.deepEqual((await get()).items.map(i => i.project.id), [funding.id]);
+  assert.equal((await guest.rpc('getProject', creative.id)).status, 200);
+  assert.ok((await (await guest.rpc('listProjects')).json()).result.some(p => p.id === plain.id));
+  await owner.rpc('updateProject', funding.id, { status: 'funded' });
+  assert.deepEqual((await get()).items, []);
+  for (let i = 0; i < 27; i++) await create(`Page ${i}`, 'funding', 'Album');
+  page = await get(guest, '?category=album'); assert.equal(page.items.length, 24); assert.ok(page.nextCursor);
+  const next = await get(guest, `?category=album&before=${page.nextCursor}`);
+  assert.equal(next.items.length, 3); assert.equal(next.nextCursor, null);
+  assert.equal(new Set([...page.items, ...next.items].map(i => i.project.id)).size, 27);
+  assert.equal((await guest.request('/api/opportunities/projects?before=-1')).status, 400);
+  assert.equal((await guest.request('/api/opportunities/projects', 'POST', {})).status, 405);
+  await app.restart();
+  const restartedPage = await get(guest, '?category=album');
+  assert.equal(typeof restartedPage.nextPageCursor, 'string'); assert.ok(restartedPage.nextPageCursor.length > 0);
+  // Opaque authenticated tokens deliberately change and expire on server restart;
+  // compare every semantic response field and verify the replacement still pages.
+  assert.deepEqual({ ...restartedPage, nextPageCursor: null }, { ...page, nextPageCursor: null });
+  assert.equal((await guest.request('/api/opportunities/projects?category=album&cursor=' + encodeURIComponent(page.nextPageCursor))).status, 400);
+  assert.deepEqual(await get(guest, '?category=album&cursor=' + encodeURIComponent(restartedPage.nextPageCursor)), next);
+});
+
+test('Home search and suggestions search before pagination, combine real fields and validate public scope', async t => {
+  const app = await fixture(t), owner = app.client(), guest = app.client();
+  await owner.register('ContextArtist');
+  assert.equal((await owner.rpc('updateArtist', { name: 'ContextArtist', genre: 'Hip-hop', bio: '', basedIn: '', recordLabel: '', picture: null })).status, 200);
+  const create = async (title, status = 'published', category = 'EP') => {
+    const response = await owner.rpc('createProject', { title, category, pitch: 'Trap sessions', story: 'Analog textures', goalAmount: 3000, status });
+    assert.equal(response.status,200); return (await response.json()).result;
+  };
+  const project = await create('Buried Context Project');
+  const add = async (p, need, compensation) => {
+    const response = await owner.request(`/api/projects/${p.id}/offers`, 'POST', { ...offerInput, need, deliverable: 'Custom stems', compensation });
+    assert.equal(response.status,201); return response.json();
+  };
+  const production = await add(project, 'Production', {kind:'fee', amount:180, currency:'USD'});
+  await add(project, 'Mix', {kind:'split', percent:10});
+  const secret = await create('Secret Context Project', 'draft'); await add(secret, 'Production', {kind:'split',percent:15});
+  for (let i=0; i<26; i++) await create(`New funding ${i}`, 'funding', 'Album');
+  const get = async query => (await (await guest.request(`/api/opportunities/projects?${query}`)).json());
+  assert.equal((await get('')).items.some(x=>x.project.id===project.id),false);
+  for (const q of ['buried', 'ContextArtist', 'Hip-hop', 'producer', 'Custom stems', 'USD payment', 'royalty share', 'Analog']) {
+    const result=await get(`q=${encodeURIComponent(q)}&category=ep`); assert.deepEqual(result.items.map(x=>x.project.id),[project.id]);
+  }
+  assert.equal((await get('need=Production&compensation=split')).items.length,0);
+  assert.deepEqual((await get('need=Production&compensation=fee&genre=Hip-hop&q=trap&category=ep')).items.map(x=>x.project.id),[project.id]);
+  assert.equal((await get('opportunity=funding')).items.length,24);
+  const suggestions=async(q,client=guest)=>(await(await client.request(`/api/opportunities/suggestions?q=${q}`)).json()).items;
+  assert.equal((await suggestions('Secret')).length,0); assert.equal((await suggestions('Secret',owner)).length,0);
+  assert.deepEqual(await suggestions('Buried'),[{id:`project:${project.id}`, label:project.title,type:'Project',action:'navigate',href:`/project/${project.id}`}]);
+  assert.ok((await suggestions('prod')).some(s=>s.value==='Production'));
+  assert.ok((await suggestions('ContextArtist')).some(s=>s.href===`/artist/${project.artistId}`));
+  assert.ok((await suggestions('Hip')).some(s=>s.type==='Artist genre'));
+  for (const route of ['projects','suggestions']) {
+    for (const query of ['need=Composer','compensation=MXN','projectType=nope','q='+ 'x'.repeat(201)]) assert.equal((await guest.request(`/api/opportunities/${route}?${query}`)).status,400);
+    assert.equal((await guest.request(`/api/opportunities/${route}`,'POST',{})).status,405);
+  }
+  await owner.request(`/api/offers/${production.id}`, 'PATCH', {action:'close',revision:production.revision});
+  assert.equal((await suggestions('prod')).length,0); assert.equal((await get('need=Production')).items.length,0);
+  await app.restart(); assert.equal((await get('q=Buried')).items.length,1);
+});
+
+test('Project Browser facets, truthful modes and cursor pagination use existing records without writes', async t => {
+  const app=await fixture(t), owner=app.client(), guest=app.client();await owner.register('BrowserArtist');
+  await owner.rpc('updateArtist',{name:'BrowserArtist',genre:'Hip-hop',basedIn:'',bio:'',recordLabel:'',picture:null});
+  const create=async(title,category,status='funding')=>(await(await owner.rpc('createProject',{title,category,goalAmount:2000,status,pitch:'Browser fixture'})).json()).result;
+  const projects=[];for(let i=0;i<27;i++) projects.push(await create(`Browser ${i}`,i%2?'EP':'Album'));
+  const multi=projects[0], fee={kind:'fee',amount:300,currency:'USD'}, split={kind:'split',percent:15};
+  for(const [need,compensation] of [['Production',fee],['Mix',split]]) assert.equal((await owner.request(`/api/projects/${multi.id}/offers`,'POST',{...offerInput,need,compensation})).status,201);
+  const draft=await create('Invisible browser','Secret category','draft');
+  const db=new DatabaseSync(join(app.dataDir,'nebula.sqlite'));const state=JSON.parse(db.prepare('SELECT value FROM state WHERE id=1').get().value);
+  // Deliberately separate ID order from creation-date order, only in disposable fixtures.
+  for(const [i,p] of state.projects.entries()) p.createdAt=new Date(Date.UTC(2025,0,28-i)).toISOString();
+  state.projects.find(p=>p.id===projects[1].id).createdAt=state.projects.find(p=>p.id===multi.id).createdAt;
+  db.prepare('UPDATE state SET value=? WHERE id=1').run(JSON.stringify(state));const before=db.prepare('SELECT value FROM state WHERE id=1').get().value;
+  const get=async(q)=>(await(await guest.request('/api/opportunities/projects?'+q)).json());
+  const general=await get(''),recent=await get('mode=recent');
+  assert.equal(general.items[0].project.id,projects[26].id);assert.equal(recent.items[0].project.id,projects[1].id);assert.equal(recent.items[1].project.id,multi.id);
+  const next=await get('mode=recent&cursor='+encodeURIComponent(recent.nextPageCursor));assert.equal(next.items.length,3);
+  assert.equal(new Set([...recent.items,...next.items].map(i=>i.project.id)).size,27);
+  assert.ok(recent.facets.artistGenres.includes('Hip-hop'));assert.equal(recent.facets.projectTypes.includes('secret category'),false);
+  const match=await get('projectTypes=ep&projectTypes=album&artistGenres=Rock&artistGenres=Hip-hop&participation=Production&participation=Mix&compensationKinds=fee&compensationKinds=split&q=Browser');
+  assert.deepEqual(match.items.map(i=>i.project.id),[multi.id]);
+  assert.equal((await get('participation=Production&compensationKinds=split')).items.length,0);
+  assert.equal((await get('participation=Funding&compensationKinds=fee')).items.length,0);
+  assert.equal((await get('participation=Mix&participation=Funding')).items.length,24);
+  for(const q of ['mode=unknown','compensationKinds=combined','compensationKinds=negotiable','participation=Songwriter','mode=recent&before=5','cursor=invalid','cursor='+encodeURIComponent(recent.nextPageCursor),'mode=recent&q=changed&cursor='+encodeURIComponent(recent.nextPageCursor)]) assert.equal((await guest.request('/api/opportunities/projects?'+q)).status,400);
+  assert.equal((await get('before='+general.nextCursor)).items.length,3,'legacy cursor remains functional');
+  const suggestions=await(await guest.request('/api/opportunities/suggestions?q=roy&participation=Production&compensationKinds=fee')).json();assert.deepEqual(suggestions.items,[]);
+  assert.equal(db.prepare('SELECT value FROM state WHERE id=1').get().value,before);db.close();
+});
+
+test('artist identity additions preserve legacy accounts, related data and sessions across restart', async t => {
+  const app = await fixture(t), owner = app.client(), applicant = app.client(), investor = app.client(), guest = app.client();
+  const ownerId = (await owner.register('IdentityOwner')).user.artistId;
+  await applicant.register('IdentityApplicant'); const investmentAccount = await investor.register('IdentityInvestor', 'investor');
+  await owner.rpc('updateArtist', { name: 'IdentityOwner', genre: 'Hip-hop / R&B', bio: 'Original bio', basedIn: 'CDMX' });
+  const project = (await (await owner.rpc('createProject', { title: 'Identity test project', category: 'EP', goalAmount: 1000, status: 'funding' })).json()).result;
+  await investor.rpc('createInvestment', { projectId: project.id, amount: 100 });
+  const media = await (await owner.upload()).json();
+  const post = await (await owner.request('/api/publications', 'POST', postInput(media, { projectId: project.id, status: 'published', allowRemix: true }))).json();
+  const offerResponse = await owner.request(`/api/projects/${project.id}/offers`, 'POST', { need: 'Production', deliverable: 'A track', requirements: '', deadline: null, compensation: { kind: 'fee', amount: 100, currency: 'USD' }, status: 'open' });
+  assert.equal(offerResponse.status, 201); const offer = await offerResponse.json();
+  const contact = await applicant.legacyConversation(offer.id);
+  assert.equal(contact.status, 200); const thread = await contact.json();
+  function snapshot() {
+    const db = new DatabaseSync(join(app.dataDir, 'nebula.sqlite'));
+    const state = JSON.parse(db.prepare('SELECT value FROM state WHERE id=1').get().value);
+    const tables = {};
+    for (const { name } of db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('state','sessions','rate_limits') ORDER BY name").all()) tables[name] = db.prepare(`SELECT * FROM "${name}" ORDER BY rowid`).all();
+    db.close(); return { state, tables };
+  }
+  const before = snapshot();
+  assert.equal(before.state.artists.find(a => a.id === ownerId).creativeRoles, undefined);
+  const legacy = (await (await guest.rpc('getArtist', ownerId)).json()).result.artist;
+  assert.deepEqual(legacy.genres, ['Hip-hop / R&B']); assert.deepEqual(legacy.creativeRoles, []);
+  assert.deepEqual(snapshot().state, before.state); // Projection is read-only.
+  const professional = await owner.rpc('updateArtist', { name: 'IdentityOwner', creativeRoles: ['producer','rapper','mixing-engineer','producer'], genres: [' Jazz ', 'jazz', 'Soul'], collaborationAvailability: 'limited' });
+  assert.equal(professional.status, 200); const identity = (await professional.json()).result;
+  assert.equal(identity.genre, 'Hip-hop / R&B'); assert.equal(identity.bio, 'Original bio');
+  assert.deepEqual(identity.creativeRoles, ['producer','rapper','mixing-engineer']); assert.deepEqual(identity.genres, ['Jazz','Soul']);
+  const preferences = { collaboration: { opportunityTypes: ['Feature','Production'], creativeRoles: ['rapper','producer'], compensationKinds: ['fee','split'] }, discovery: { genres: ['PRIVATE_PREFERENCE_MARKER'], projectTypes: ['ep','single'], opportunityTypes: ['Production','Funding'] } };
+  assert.equal((await owner.rpc('updateMyArtistPreferences', preferences)).status, 200);
+  // The old UI submits only legacy fields. Structured fields must survive.
+  assert.equal((await owner.rpc('updateArtist', { name: 'IdentityOwner Edited', genre: 'Old editor changed genre', bio: 'Edited bio', basedIn: 'CDMX', picture: null, recordLabel: '' })).status, 200);
+  const after = snapshot();
+  assert.deepEqual(after.tables, before.tables);
+  for (const field of ['projects','investments','supports','visibility']) assert.deepEqual(after.state[field], before.state[field]);
+  assert.deepEqual(after.state.accounts.find(a => a.id === investmentAccount.user.investorId), before.state.accounts.find(a => a.id === investmentAccount.user.investorId));
+  assert.deepEqual(after.state.artists.filter(a => a.id !== ownerId), before.state.artists.filter(a => a.id !== ownerId));
+  await app.restart();
+  const session = await (await owner.request('/api/session')).json();
+  assert.equal(session.user.artistId, ownerId); assert.equal(session.user.role, 'artist');
+  assert.deepEqual(session.user.artist.creativeRoles, identity.creativeRoles);
+  assert.deepEqual((await (await owner.rpc('getMyArtistPreferences')).json()).result, preferences);
+  assert.equal((await applicant.request(`/api/collaborations/${thread.id}`)).status, 200);
+  assert.equal((await applicant.rpc('updateProject', project.id, { title: 'No access' })).status, 404);
+  for (const client of [guest, investor, applicant, owner]) {
+    for (const response of [await client.rpc('getArtist', ownerId), await client.rpc('listArtists'), await client.rpc('getProject', project.id), await client.request('/api/publications'), await client.request(`/api/publications/${post.id}`), await client.request('/api/opportunities/projects'), await client.request('/api/opportunities/suggestions?q=Identity'), await client.request('/api/session')]) {
+      assert.equal(response.status, 200); const text = await response.text();
+      assert.equal(text.includes('PRIVATE_PREFERENCE_MARKER'), false); assert.equal(text.includes('artistPreferences'), false);
+    }
+  }
+  const secondBrowser = app.client();
+  assert.equal((await secondBrowser.rpc('login', { email: 'identityowner@example.invalid', password: 'preview123' })).status, 200);
+  assert.deepEqual((await (await secondBrowser.rpc('getMyArtistPreferences')).json()).result, preferences);
+});
+
+test('private preference operations enforce ownership, roles, CSRF and strict validation', async t => {
+  const app = await fixture(t), owner = app.client(), other = app.client(), investor = app.client(), guest = app.client();
+  const ownerId = (await owner.register('PrivateIdentity')).user.artistId;
+  await other.register('OtherIdentity'); await investor.register('PrivateInvestor', 'investor');
+  const baseline = (await (await owner.rpc('getMyArtistPreferences')).json()).result;
+  assert.deepEqual(baseline.collaboration.creativeRoles, []);
+  for (const method of ['getMyArtistPreferences','updateMyArtistPreferences']) {
+    assert.equal((await guest.rpc(method, ...(method.startsWith('update') ? [{}] : []))).status, 401);
+    assert.equal((await investor.rpc(method, ...(method.startsWith('update') ? [{}] : []))).status, 403);
+  }
+  assert.equal((await other.rpc('getMyArtistPreferences', ownerId)).status, 400);
+  for (const input of [
+    { artistId: ownerId }, { role: 'artist' }, { discovery: { ownerId } }, { discovery: { genres: null } },
+    { collaboration: { compensationKinds: ['combined'] } }, { collaboration: { compensationKinds: ['negotiable'] } },
+    { collaboration: { creativeRoles: ['Production'] } }, { discovery: { projectTypes: ['not-supported'] } },
+    { discovery: { opportunityTypes: ['Songwriter'] } }, { discovery: { genres: Array(21).fill('Rock') } },
+  ]) assert.equal((await owner.rpc('updateMyArtistPreferences', input)).status, 400, JSON.stringify(input));
+  for (const input of [{ creativeRoles: ['admin'] }, { genres: [''] }, { genres: ['x'.repeat(121)] }, { collaborationAvailability: 'verified' }, { artistPreferences: {} }, { id: ownerId }, { role: 'investor' }]) {
+    assert.equal((await owner.rpc('updateArtist', { name: 'PrivateIdentity', ...input })).status, 400);
+  }
+  assert.equal((await owner.request('/api/rpc', 'POST', { method: 'updateMyArtistPreferences', args: [{}] }, { Origin: 'https://other.invalid' })).status, 403);
+  assert.deepEqual((await (await owner.rpc('getMyArtistPreferences')).json()).result, baseline);
+  const updates = await Promise.all([
+    owner.rpc('updateMyArtistPreferences', { collaboration: { creativeRoles: ['producer','vocalist'] } }),
+    owner.rpc('updateMyArtistPreferences', { discovery: { genres: ['Soul'] } }),
+  ]);
+  assert.deepEqual(updates.map(r => r.status), [200,200]);
+  const stored = (await (await owner.rpc('getMyArtistPreferences')).json()).result;
+  assert.deepEqual(stored.collaboration.creativeRoles, ['producer','vocalist']); assert.deepEqual(stored.discovery.genres, ['Soul']);
+  assert.deepEqual((await (await other.rpc('getMyArtistPreferences')).json()).result, baseline);
+  await owner.rpc('updateMyArtistPreferences', { discovery: { genres: [] } });
+  const cleared = (await (await owner.rpc('getMyArtistPreferences')).json()).result;
+  assert.deepEqual(cleared.discovery.genres, []); assert.deepEqual(cleared.collaboration.creativeRoles, stored.collaboration.creativeRoles);
+  await owner.rpc('logout'); assert.equal((await owner.rpc('getMyArtistPreferences')).status, 401);
+});
+
+test('canonical artist taxonomies validate on the server and preserve unresolved legacy identity', async t => {
+  const app = await fixture(t), owner = app.client(), other = app.client(), investor = app.client(), guest = app.client();
+  const id = (await owner.register('TaxonomyOwner')).user.artistId;
+  const otherId = (await other.register('TaxonomyOther')).user.artistId;
+  await investor.register('TaxonomyInvestor', 'investor');
+  const project = (await (await owner.rpc('createProject', { title: 'Taxonomy project', category: 'EP', status: 'funding', goalAmount: 1000 })).json()).result;
+  const db = new DatabaseSync(join(app.dataDir, 'nebula.sqlite'));
+  const raw = JSON.parse(db.prepare('SELECT value FROM state WHERE id=1').get().value);
+  Object.assign(raw.artists.find(a => a.id === id), { creativeRoles: ['Music Producer', 'Session Musician', 'Future legacy role'], genre: 'Demo projects', genres: ['Hip hop', 'RnB', 'Jazz / Soul'] });
+  db.prepare('UPDATE state SET value=? WHERE id=1').run(JSON.stringify(raw)); db.close();
+  await app.restart();
+  const state = () => { const d = new DatabaseSync(join(app.dataDir, 'nebula.sqlite')); const s = JSON.parse(d.prepare('SELECT value FROM state WHERE id=1').get().value); d.close(); return s; };
+  const before = state(), projects = await (await guest.request('/api/opportunities/projects?q=Taxonomy')).json();
+  const legacy = (await (await guest.rpc('getArtist', id)).json()).result.artist;
+  assert.deepEqual(legacy.creativeRoles, ['producer', 'session-musician']); assert.deepEqual(legacy.genreIds, ['hip-hop', 'rnb']);
+  assert.deepEqual(legacy.identityReview, { creativeRoles: ['Future legacy role'], genres: ['Jazz / Soul', 'Demo projects'] });
+  assert.deepEqual(state(), before); // No write-on-read or wholesale migration.
+  const invalid = [{ creativeRoles: ['Music Producer'] }, { creativeRoles: ['Production'] }, { genreIds: ['R&B'] }, { genreIds: ['invented'] }, { genreIds: null }, { genreIds: Array(21).fill('jazz') }, { identityReview: {} }, { legacyCreativeRoles: [] }, { id: otherId }];
+  for (const patch of invalid) {
+    const response = await owner.rpc('updateArtist', { name: 'TaxonomyOwner', ...patch });
+    assert.equal(response.status, 400, JSON.stringify(patch)); assert.ok((await response.json()).error);
+  }
+  assert.equal((await guest.rpc('updateArtist', { name: 'No', genreIds: ['rock'] })).status, 401);
+  assert.equal((await investor.rpc('updateArtist', { name: 'No', genreIds: ['rock'] })).status, 403);
+  assert.deepEqual(state(), before);
+  const saved = await owner.rpc('updateArtist', { name: 'TaxonomyOwner', creativeRoles: ['recording-engineer','lyricist','producer','producer'], genreIds: ['deep-house','regional-mexican','deep-house'] });
+  assert.equal(saved.status, 200);
+  const profile = (await saved.json()).result;
+  assert.deepEqual(profile.creativeRoles, ['recording-engineer','lyricist','producer']); assert.deepEqual(profile.genreIds, ['deep-house','regional-mexican']);
+  assert.deepEqual(profile.identityReview, legacy.identityReview);
+  assert.deepEqual(state().artists.find(a => a.id === id).legacyCreativeRoles, ['Future legacy role']);
+  assert.deepEqual(state().artists.find(a => a.id === otherId), before.artists.find(a => a.id === otherId));
+  assert.deepEqual(state().projects, before.projects);
+  // Identity edits now update genre facets; catalog records, eligibility and pagination remain identical.
+  assert.deepEqual(projects.facets.artistGenres, ['Hip-hop', 'Jazz / Soul', 'R&B']);
+  assert.deepEqual(await (await guest.request('/api/opportunities/projects?q=Taxonomy')).json(), {
+    ...projects, facets: { ...projects.facets, artistGenres: ['Deep House', 'Regional Mexican'] },
+  });
+  assert.equal((await other.rpc('updateProject', project.id, { title: 'Forbidden' })).status, 404);
+  await app.restart();
+  assert.deepEqual((await (await owner.request('/api/session')).json()).user.artist.genreIds, ['deep-house','regional-mexican']);
+  assert.equal((await owner.rpc('updateArtist', { name: 'TaxonomyOwner', creativeRoles: [], genreIds: [] })).status, 200);
+  await app.restart();
+  const cleared = (await (await owner.rpc('getArtist', id)).json()).result.artist;
+  assert.deepEqual(cleared.creativeRoles, []); assert.deepEqual(cleared.genreIds, []);
+  assert.deepEqual(cleared.genres, legacy.genres); assert.equal(cleared.genre, 'Demo projects'); assert.deepEqual(cleared.identityReview, legacy.identityReview);
+});
+
+test('Artist 1.2 identity saves are atomic, resumable and private across restart and accounts', async t => {
+  const app = await fixture(t), artist = app.client(), other = app.client(), guest = app.client(), investor = app.client();
+  const user = (await artist.register('ProfileLifecycle')).user;
+  await other.register('OtherProfile'); await investor.register('ProfileInvestor', 'investor');
+  const state = () => { const db = new DatabaseSync(join(app.dataDir, 'nebula.sqlite')); const raw = db.prepare('SELECT value FROM state WHERE id=1').get().value; db.close(); return raw; };
+  const baseline = state();
+  assert.equal((await artist.rpc('getMyArtistOnboarding')).status, 200); assert.equal(state(), baseline);
+  const identity = { name: 'ProfileLifecycle', creativeRoles: ['producer', 'recording-engineer'], genreIds: ['hip-hop'], externalLinks: [{ label: 'Music site', url: 'https://example.com/music' }], publicInterests: ['Feature'], collaborationAvailability: 'open' };
+  const preferences = { discovery: { genreIds: ['electronic'], genres: ['PRIVATE_TASTE'], opportunityTypes: ['Mix'] }, collaboration: { creativeRoles: ['mixing-engineer'], compensationKinds: ['fee'] } };
+  const response = await artist.rpc('updateArtistIdentity', { profile: identity, preferences, onboarding: { step: 4, completeStep: 3 } }); assert.equal(response.status, 200);
+  const saved = state();
+  for (const input of [{ profile: { name: 'MUST_NOT_SAVE' }, preferences: { discovery: { genreIds: ['fake'] } } }, { onboarding: { step: 1, finish: true } }, { profile: { name: 'No', externalLinks: [{ label: 'Unsafe', url: 'javascript:alert(1)' }] } }, { profile: { name: 'No', publicInterests: ['Unknown'] } }, { ownerId: user.artistId }, { onboarding: { step: 1, completedAt: 'forged' } }]) assert.equal((await artist.rpc('updateArtistIdentity', input)).status, 400);
+  assert.equal(state(), saved);
+  for (const method of ['getMyArtistOnboarding', 'updateArtistIdentity']) {
+    const args = method.startsWith('update') ? [{}] : [];
+    assert.equal((await guest.rpc(method, ...args)).status, 401); assert.equal((await investor.rpc(method, ...args)).status, 403);
+  }
+  assert.equal((await artist.rpc('getMyArtistOnboarding', user.artistId)).status, 400);
+  assert.equal((await artist.request('/api/rpc', 'POST', { method: 'updateArtistIdentity', args: [{}] }, { Origin: 'https://untrusted.invalid' })).status, 403);
+  for (const client of [guest, other, investor, artist]) {
+    const publicResponse = await client.rpc('getPublicArtist', user.artistId); assert.equal(publicResponse.status, 200); const body = JSON.stringify((await publicResponse.json()).result);
+    for (const secret of ['PRIVATE_TASTE', 'artistOnboarding', 'completedSteps', 'artistPreferences', 'passwordDigest', 'profilelifecycle@example.invalid']) assert.equal(body.includes(secret), false, secret);
+    assert.equal(body.includes('electronic'), false); assert.equal(body.includes('hip-hop'), true);
+  }
+  await app.restart();
+  assert.equal((await (await artist.rpc('getMyArtistOnboarding')).json()).result.step, 4);
+  assert.equal((await (await other.rpc('getMyArtistOnboarding')).json()).result.step, 1);
+  assert.deepEqual((await (await artist.rpc('getMyArtistPreferences')).json()).result.discovery.genreIds, ['electronic']);
+  assert.equal((await artist.rpc('updateArtistIdentity', { onboarding: { step: 4, finish: true } })).status, 200);
+  assert.ok((await (await artist.rpc('getMyArtistOnboarding')).json()).result.completedAt);
+  assert.equal((await (await artist.request('/api/session')).json()).user.artistId, user.artistId);
+  const stored = JSON.parse(state()); assert.equal(stored.artists.length, 2); assert.equal(stored.accounts.length, 3);
+});
+
+test('public artist catalog separates project audio, independent posts and private records before pagination', async t => {
+  const app = await fixture(t), artist = app.client(), other = app.client(), guest = app.client();
+  const id = (await artist.register('CatalogOwner')).user.artistId; await other.register('CatalogOther');
+  const create = async (title, category, status) => (await (await artist.rpc('createProject', { title, category, status, goalAmount: 1000 })).json()).result;
+  const ep = await create('Music EP', 'EP', 'published'), draft = await create('PRIVATE PROJECT', 'Album', 'draft'), tour = await create('Public tour', 'Tour', 'published'), closed = await create('Closed work', 'Single', 'closed');
+  const media = await (await artist.upload()).json();
+  const publish = async (title, projectId, status = 'published') => { const r = await artist.request('/api/publications', 'POST', postInput(media, { title, projectId, status })); assert.equal(r.status, 201); return r.json(); };
+  const projectAudio = await publish('Actual project sound', ep.id); await publish('Not a music release', tour.id); await publish('PRIVATE POST', null, 'draft');
+  for (let n = 0; n < 21; n++) await publish(`Independent ${n}`, null);
+  await publish('WITHDRAWN POST', null, 'withdrawn');
+  const otherMedia = await (await other.upload()).json(); await other.request('/api/publications', 'POST', postInput(otherMedia, { title: 'OTHER ARTIST', status: 'published' }));
+  const offer = await artist.request(`/api/projects/${ep.id}/offers`, 'POST', { need: 'Feature', deliverable: 'A verse', requirements: '', deadline: null, compensation: { kind: 'split', percent: 10 }, status: 'open' }); assert.equal(offer.status, 201);
+  const offerData = await offer.json();
+  const thread = await other.legacyConversation(offerData.id); assert.equal(thread.status, 200);
+  for (const viewer of [artist, guest, other]) {
+    const profile = (await (await viewer.rpc('getPublicArtist', id)).json()).result;
+    assert.deepEqual(profile.projects.map(p => p.id), [ep.id, tour.id, closed.id]); assert.deepEqual(profile.opportunityProjectIds, [ep.id]);
+    assert.equal(JSON.stringify(profile).includes('PRIVATE PROJECT'), false);
+    const music = await (await viewer.request(`/api/publications?artistId=${id}&projectAudio=1`)).json();
+    assert.deepEqual(music.items.map(p => p.id), [projectAudio.id]); assert.equal(music.nextCursor, null);
+    const first = await (await viewer.request(`/api/publications?artistId=${id}`)).json(); assert.equal(first.items.length, 20);
+    const second = await (await viewer.request(`/api/publications?artistId=${id}&before=${first.nextCursor}`)).json();
+    const posts = [...first.items, ...second.items]; assert.equal(posts.length, 23); assert.equal(new Set(posts.map(p => p.id)).size, 23);
+    assert.ok(posts.every(p => p.artistId === id && p.status === 'published'));
+    assert.equal(JSON.stringify(profile).includes('submissions'), false); assert.equal(JSON.stringify(profile).includes('messages'), false);
+  }
+  assert.equal((await artist.request(`/api/publications?mine=1&artistId=${id}`)).status, 400);
+  await artist.rpc('updateProject', ep.id, { status: 'draft' });
+  assert.equal((await (await guest.request(`/api/publications?artistId=${id}&projectAudio=1`)).json()).items.length, 0);
+  const publicPost = (await (await guest.request(`/api/publications?artistId=${id}`)).json()).items;
+  assert.ok(publicPost.every(p => p.project?.id !== ep.id));
+  await artist.rpc('deleteProject', closed.id);
+  assert.deepEqual((await (await guest.rpc('getPublicArtist', id)).json()).result.projects.map(p => p.id), [tour.id]);
+  assert.ok((await (await artist.rpc('getArtist', id)).json()).result.projects.some(p => p.id === draft.id));
+});
+
+test('artist genre search integrates canonical identity, legacy compatibility, pagination, Following and visibility without changing project search', async t => {
+  const app = await fixture(t), owner = app.client(), viewer = app.client(), legacy = app.client(), investor = app.client(), guest = app.client();
+  const ownerId = (await owner.register('NeutralMaker')).user.artistId;
+  await viewer.register('NeutralViewer'); await legacy.register('LegacyMaker'); await investor.register('GenreInvestor', 'investor');
+  const rpc = async (client, method, ...args) => { const r = await client.rpc(method, ...args); assert.equal(r.status, 200, await r.clone().text()); return (await r.json()).result; };
+  const create = (client, title, status = 'published') => rpc(client, 'createProject', { title, category: 'EP', goalAmount: 1000, status });
+  const eligible = await create(owner, 'Eligible neutral work');
+  for (const [need, compensation] of [['Production', { kind: 'fee', amount: 100, currency: 'USD' }], ['Mix', { kind: 'split', percent: 12 }]]) {
+    assert.equal((await owner.request(`/api/projects/${eligible.id}/offers`, 'POST', { ...offerInput, need, compensation })).status, 201);
+  }
+  const publicOnly = await create(owner, 'Catalog neutral work');
+  const privateOnly = await create(owner, 'Private neutral work', 'draft');
+  const legacyProject = await create(legacy, 'Legacy eligible work', 'funding');
+  await rpc(owner, 'updateArtist', { name: 'NeutralMaker', genreIds: ['rnb', 'electronic'] });
+  await rpc(owner, 'updateMyArtistPreferences', { discovery: { genreIds: ['classical'] } });
+  await rpc(legacy, 'updateArtist', { name: 'LegacyMaker', genre: 'NORTEÑO' });
+  const projects = async (q, client = guest) => { const r = await client.request('/api/opportunities/projects?' + q); assert.equal(r.status, 200); return r.json(); };
+  const ids = result => result.items.map(item => item.project.id);
+  const artists = (query, client = guest) => rpc(client, 'listArtists', { search: query });
+  for (const query of ['rnb', 'R&B', 'Rhythm and Blues', 'ELECTRÓNICA', 'electronic_music']) {
+    assert.deepEqual(ids(await projects('q=' + encodeURIComponent(query))), [eligible.id]);
+    assert.deepEqual((await artists(query)).map(a => a.id), [ownerId]);
+  }
+  assert.deepEqual(ids(await projects('genre=norteno')), [legacyProject.id]);
+  assert.equal((await artists('norteño')).length, 1);
+  assert.deepEqual(await artists('classical'), []);
+  assert.equal((await artists('NeutralMaker'))[0].genreSource, 'structured');
+  assert.equal((await artists('LegacyMaker'))[0].genreSource, 'legacy');
+  // Canonical IDs take precedence over both legacy fields; unknown legacy text is not classified.
+  await rpc(owner, 'updateArtist', { name: 'NeutralMaker', genre: 'Rock', genres: ['Jazz'] });
+  for (const term of ['rock', 'jazz']) { assert.deepEqual(await artists(term), []); assert.deepEqual(ids(await projects('q=' + term)), []); }
+  await rpc(legacy, 'updateArtist', { name: 'LegacyMaker', genre: 'Unmapped texture' });
+  assert.equal((await artists('unmapped texture')).length, 1);
+  assert.deepEqual(ids(await projects('artistGenres=Unmapped%20texture')), [legacyProject.id]);
+  const hints = await (await guest.request('/api/opportunities/suggestions?q=unmapped')).json();
+  assert.equal(hints.items[0].label, 'Unmapped texture (legacy text)');
+  assert.deepEqual((await artists('LegacyMaker'))[0].genreIds, []);
+  // Keep broader Global Search and owner-only draft visibility separate from Home eligibility.
+  assert.deepEqual((await rpc(guest, 'listProjects', { search: 'Catalog neutral' })).map(p => p.id), [publicOnly.id]);
+  assert.deepEqual(ids(await projects('q=Catalog')), []);
+  assert.deepEqual(await rpc(guest, 'listProjects', { search: 'Private neutral' }), []);
+  assert.deepEqual(await rpc(viewer, 'listProjects', { search: 'Private neutral' }), []);
+  assert.deepEqual((await rpc(owner, 'listProjects', { search: 'Private neutral' })).map(p => p.id), [privateOnly.id]);
+  assert.deepEqual(ids(await projects('q=Private', owner)), []);
+  assert.deepEqual(await rpc(guest, 'listProjects', { search: 'electronic' }), []); // No inferred project genres.
+  const filters = 'artistGenres=RnB&artistGenres=Electronic&projectTypes=ep&projectTypes=album&participation=Production&compensationKinds=fee';
+  assert.deepEqual(ids(await projects(filters)), [eligible.id]);
+  assert.deepEqual(ids(await projects(filters.replace('compensationKinds=fee', 'compensationKinds=split'))), []);
+  assert.deepEqual(ids(await projects(filters.replace('participation=Production', 'participation=Funding'))), []);
+  // Place the matching project beyond the first page; matching happens before pagination.
+  for (let i = 0; i < 25; i++) await create(legacy, `Newer funding ${i}`, 'funding');
+  assert.equal(ids(await projects('')).includes(eligible.id), false);
+  assert.deepEqual(ids(await projects(filters)), [eligible.id]);
+  assert.equal((await viewer.request(`/api/artists/${ownerId}/follow`, 'PUT')).status, 200);
+  assert.deepEqual(ids(await projects('mode=following&' + filters, viewer)), [eligible.id]);
+  assert.deepEqual(ids(await projects('mode=following&artistGenres=Unmapped%20texture', viewer)), []);
+  assert.equal((await investor.request('/api/opportunities/projects?mode=following')).status, 403);
+  assert.deepEqual((await artists('electronic', investor)).map(a => a.id), [ownerId]);
+  assert.equal((await investor.rpc('updateArtist', { name: 'Forbidden', genreIds: ['rock'] })).status, 403);
+  // Persist removals and explicit clearing; keep unrelated public/private records unchanged.
+  const projectBefore = await rpc(owner, 'getProject', eligible.id);
+  await rpc(owner, 'updateArtist', { name: 'NeutralMaker', genreIds: ['rnb'] });
+  await app.restart();
+  assert.deepEqual(await artists('electronic'), []); assert.deepEqual(ids(await projects('artistGenres=electronic')), []);
+  assert.deepEqual(ids(await projects('artistGenres=R%26B')), [eligible.id]);
+  await rpc(owner, 'updateArtist', { name: 'NeutralMaker', genreIds: [] });
+  for (const term of ['rock', 'jazz', 'rnb']) { assert.deepEqual(await artists(term), []); assert.deepEqual(ids(await projects('q=' + term)), []); }
+  assert.deepEqual(await rpc(owner, 'getProject', eligible.id), { ...projectBefore, artist: { ...projectBefore.artist, genreIds: [] } });
+  assert.deepEqual((await rpc(owner, 'getMyArtistPreferences')).discovery.genreIds, ['classical']);
+  assert.equal((await rpc(owner, 'getArtist', ownerId)).artist.genre, 'Rock');
+  assert.equal((await viewer.request(`/api/artists/${ownerId}/follow`, 'DELETE')).status, 200);
+  assert.deepEqual(ids(await projects('mode=following', viewer)), []);
+  await rpc(viewer, 'logout');
+  assert.equal((await viewer.request('/api/opportunities/projects?mode=following')).status, 401);
+  await viewer.register('NewNeutralViewer');
+  assert.deepEqual(ids(await projects('mode=following', viewer)), []);
+  assert.deepEqual((await rpc(viewer, 'getMyArtistPreferences')).discovery.genreIds ?? [], []);
 });

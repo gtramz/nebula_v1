@@ -1,3 +1,6 @@
+import type { ArtistProfessionalIdentity } from './artist-identity.js';
+export const supportedProjectTypes = ['album', 'ep', 'single', 'tour', 'video'] as const;
+
 export interface HealthStatus {
   status: string;
 }
@@ -34,7 +37,7 @@ export const SessionUserRole = {
   artist: 'artist',
 } as const;
 
-export interface Artist {
+export interface Artist extends ArtistProfessionalIdentity {
   id: number;
   name: string;
   /** @nullable */
@@ -66,7 +69,7 @@ export interface SessionUser {
 }
 
 
-export interface ArtistSummary {
+export interface ArtistSummary extends ArtistProfessionalIdentity {
   id: number;
   name: string;
   /** @nullable */
@@ -213,6 +216,7 @@ export const ProjectUpdateStatus = {
 } as const;
 
 export interface ProjectUpdate {
+  expected?: Partial<Project>;
   /**
      * @minLength 1
      * @maxLength 160

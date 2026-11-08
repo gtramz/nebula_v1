@@ -1,3 +1,4 @@
+import { clickProfileLogout } from '../tests-support/profile-actions';
 import { expect, test, type Page } from '@playwright/test';
 import { createLocalStore, STORAGE_KEY } from '../lib/local/src/store';
 
@@ -75,12 +76,30 @@ test('combines public contributions and independently hides name and total from 
   await expect(history.getByText('Visible Investor', { exact: true })).toHaveCount(2);
   await expect(history.getByRole('button', { name: 'Public visibility', exact: true })).toHaveCount(0);
   await page.screenshot({ path: info.outputPath('artist-history.png'), fullPage: true });
+  await page.getByRole('combobox', { name: 'Project', exact: true }).selectOption(String(project.id));
+  await page.getByRole('combobox', { name: 'Project availability', exact: true }).selectOption('current');
+  await page.getByLabel('From date', { exact: true }).fill('2000-01-01');
+  await page.getByLabel('To date', { exact: true }).fill('2100-12-31');
+  for (const width of [390,578,767,768,1024,1440]) {
+    await page.setViewportSize({width,height:900});
+    await expect(page.getByRole('combobox', { name: 'Project', exact: true })).toHaveValue(String(project.id));
+    await expect(page.getByRole('combobox', { name: 'Project availability', exact: true })).toHaveValue('current');
+    await expect(page.getByLabel('From date', { exact: true })).toHaveValue('2000-01-01');
+    await expect(page.getByLabel('To date', { exact: true })).toHaveValue('2100-12-31');
+    await expect(history.getByText('USD 300.30', { exact: true })).toBeVisible();
+    await expect(page.getByRole('navigation',{name:'Primary navigation'}).getByRole('link',{name:width<768?'profile':'received',exact:true})).toHaveAttribute('aria-current','page');
+  }
+  await page.setViewportSize({width:390,height:900});
+  await page.getByRole('navigation',{name:'Primary navigation'}).getByRole('link',{name:'profile',exact:true}).click();
+  await expect(page).toHaveURL(/\/profile$/);
+  const receivedCard=page.getByRole('link',{name:/Contributions received Private history/});await expect(receivedCard).toHaveCount(1);await receivedCard.click();
+  await expect(page).toHaveURL(/\/received$/);await expect(history.getByText('USD 300.30',{exact:true})).toBeVisible();
   await page.getByLabel('To date', { exact: true }).fill('2000-01-01');
   await expect(page.getByText('No contributions match these filters.')).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await expect(history).toBeVisible();
   await page.goto('/profile');
-  await page.getByRole('button', { name: 'LOGOUT', exact: true }).click();
+  await clickProfileLogout(page);
   await expect(page).toHaveURL(/\/$/);
   await page.goto('/received');
   await expect(page.getByText('Log in to view your private history.')).toBeVisible();

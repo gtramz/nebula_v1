@@ -24,6 +24,7 @@ export type DemoPost = {
   author: string;
   artistId?: number;
   coverUrl?: string | null;
+  projectCoverUrl?: string | null;
   initials: string;
   genre: string;
   description: string;
@@ -34,6 +35,7 @@ export type DemoPost = {
   original?: { postId: string; title: string; author: string; available?: boolean };
   project?: DemoProject;
   projectId?: number;
+  workId?: number;
   comments: { id: string; author: string; text: string }[];
 };
 

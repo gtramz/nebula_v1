@@ -1,3 +1,4 @@
+import { clickProfileLogout } from '../tests-support/profile-actions';
 import { expect, test, type Page } from '@playwright/test';
 
 async function go(page: Page, path: string) {
@@ -15,12 +16,13 @@ async function register(page: Page, role: 'artist' | 'investor', name: string, e
   await page.getByLabel('password', { exact: true }).fill('preview123');
   await page.getByLabel('confirm password', { exact: true }).fill('preview123');
   await page.getByRole('button', { name: 'create account', exact: true }).click();
+  if (role === 'artist') { await expect(page).toHaveURL(/\/onboarding$/); await page.getByRole('button', { name: 'Skip for now', exact: true }).click(); }
   await expect(page).toHaveURL(role === 'artist' ? /\/profile$/ : /\/explore$/);
 }
 
 async function logout(page: Page) {
   await go(page, '/profile');
-  await page.getByRole('button', { name: 'LOGOUT', exact: true }).click();
+  await clickProfileLogout(page);
   await expect(page).toHaveURL(/\/$/);
 }
 
@@ -58,7 +60,11 @@ test('all interface flows run with no network after the first page load', async 
 
   await register(page, 'artist', 'Artist Preview', 'artist@example.invalid');
   await page.getByRole('button', { name: 'EDIT PROFILE', exact: true }).click();
-  await page.getByRole('textbox', { name: 'genre', exact: true }).fill('Electronic');
+  await page.getByRole('button', { name: 'Choose musical genres', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Search musical genres' }).fill('Electronic');
+  await page.getByRole('option', { name: 'Electronic', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Musical genres selector' })).toBeHidden();
   await page.getByRole('textbox', { name: 'bio', exact: true }).fill('An artist profile created in this tab.');
   await page.getByRole('button', { name: 'save profile', exact: true }).click();
   await expect(page.getByText('Electronic', { exact: true })).toBeVisible();
@@ -93,6 +99,7 @@ test('all interface flows run with no network after the first page load', async 
   await page.locator('a[href^="/artist/"]').filter({ hasText: 'Artist Preview' }).first().click();
   await expect(page.getByRole('heading', { name: 'Artist Preview', exact: true })).toBeVisible();
   await expect(page.getByText('An artist profile created in this tab.', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: 'Projects', exact: true }).click();
   await page.locator('a[href^="/project/"]').filter({ hasText: 'Preview Album' }).first().click();
   await page.getByRole('button', { name: 'BACK THIS PROJECT', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('No money moves.');

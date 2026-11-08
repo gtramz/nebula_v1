@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "private": true,
-  "description": "Nebula interface and browser-only interaction shell",
+  "description": "Antiq Nebula interface and persistent local mock application",
   "author": "manuellcossio",
   "license": "MIT",
   "packageManager": "pnpm@11.21.0",
@@ -16,13 +16,13 @@
     "build:server": "tsc -p server/tsconfig.json",
     "start": "node dist-server/server/main.js",
     "test:server": "pnpm build:server && node --test server/*.test.mjs",
-    "test:shared": "playwright test --config playwright.shared.config.ts",
+    "test:shared": "node scripts/test-integrated.mjs shared",
     "preview": "pnpm --filter @nebula/ui serve",
     "typecheck": "tsc --build && pnpm --filter @nebula/ui typecheck",
     "test": "vitest run",
     "test:browser": "playwright test",
-    "test:collaborations": "playwright test --config playwright.collaborations.config.ts",
-    "test:remix": "playwright test --config playwright.remix.config.ts"
+    "test:collaborations": "node scripts/test-integrated.mjs collaborations",
+    "test:remix": "node scripts/test-integrated.mjs remix"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

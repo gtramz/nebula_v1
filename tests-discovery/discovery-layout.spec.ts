@@ -17,14 +17,56 @@ async function publish(page: Page, title: string, mediaId: string, coverId: stri
 const active = (page: Page) => page.locator('article[data-active=true]');
 async function visibleGeometry(page: Page) {
   const article = active(page), media = (await article.locator('.discovery-media').boundingBox())!, rail = (await article.locator('.discovery-actions').boundingBox())!;
-  expect(rail.x).toBeGreaterThanOrEqual(media.x + media.width);
+  const mobile = page.viewportSize()!.width < 768;
+  if (mobile) {
+    const card = (await article.boundingBox())!, feed = (await page.locator('.discovery-feed').boundingBox())!;
+    await expect(page.locator('.mobile-navigation-header')).toBeHidden();
+    await expect(page.locator('.discovery-heading')).toBeHidden();
+    expect(card.x).toBe(0); expect(card.y).toBeCloseTo(0, 0);
+    expect(card.width).toBe(page.viewportSize()!.width);
+    expect(card.height).toBeCloseTo(page.viewportSize()!.height - 64, 0);
+    expect(feed.height).toBeCloseTo(card.height, 0);
+    expect(rail.x).toBeGreaterThanOrEqual(media.x);
+    expect(rail.x + rail.width).toBeLessThanOrEqual(media.x + media.width + 1);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight + 1)).toBe(true);
+  } else expect(rail.x).toBeGreaterThanOrEqual(media.x + media.width);
   const buttons = article.locator('.discovery-actions button');
-  for (let i=0; i<5; i++) { const box=(await buttons.nth(i).boundingBox())!; expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44); if (i) expect(box.y).toBeGreaterThanOrEqual((await buttons.nth(i-1).boundingBox())!.y); }
+  for (let i=0; i<5; i++) { const box=(await buttons.nth(i).boundingBox())!; expect(box.width).toBeGreaterThanOrEqual(44); expect(box.height).toBeGreaterThanOrEqual(44); if (i && (!mobile || page.viewportSize()!.height >= 600)) expect(box.y).toBeGreaterThanOrEqual((await buttons.nth(i-1).boundingBox())!.y); }
   const bottom = page.viewportSize()!.height - (page.viewportSize()!.width < 768 ? 64 : 0);
   expect(rail.y).toBeGreaterThanOrEqual(0); expect(rail.y+rail.height).toBeLessThanOrEqual(bottom);
   expect(await article.evaluate(e=>e.scrollHeight<=e.clientHeight+1)).toBe(true);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 }
+
+test('compact screens fill the area above navigation and keep media, attribution and controls reachable', async ({ page }, info) => {
+  for (const viewport of [{ width: 390, height: 664 }, { width: 320, height: 568 }, { width: 578, height: 880 }, { width: 767, height: 900 }, { width: 660, height: 390 }, { width: 568, height: 320 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/discovery?demo=1');
+    const feed = page.getByRole('region', { name: 'Discovery feed' });
+    for (let index = 0; index < 3; index++) {
+      const article = active(page);
+      await expect(article).toHaveAttribute('data-index', String(index));
+      await page.screenshot({ path: info.outputPath(`card-${viewport.width}-${viewport.height}-${index}.png`) });
+      await visibleGeometry(page);
+      const bounds = (await article.boundingBox())!;
+      const stage = article.locator('.discovery-video-stage, .discovery-audio-stage');
+      expect((await stage.boundingBox())!.height).toBeGreaterThan(32);
+      for (const selector of ['.discovery-media-controls', '.discovery-post-info']) {
+        const box = (await article.locator(selector).boundingBox())!;
+        expect(box.y).toBeGreaterThanOrEqual(bounds.y);
+        expect(box.y + box.height).toBeLessThanOrEqual(bounds.y + bounds.height + 1);
+      }
+      const seek = article.getByRole('slider', { name: /^Seek / });
+      await seek.focus(); await page.keyboard.press('ArrowDown');
+      await expect(article).toHaveAttribute('data-index', String(index));
+      if (index === 2) await page.screenshot({ path: info.outputPath(`compact-${viewport.width}-${viewport.height}.png`) });
+      // Arrow navigation also works after a social action has received focus.
+      await article.getByRole('button', { name: 'Star', exact: true }).focus();
+      await page.keyboard.press('ArrowDown');
+      if (index < 2) await expect(feed).toBeFocused();
+    }
+  }
+});
 
 test('real audio waveform seeks without resetting playback, preserves artwork and handles unavailable waveform', async({page}, info)=>{
   await register(page,`wave-${info.project.name}`);
@@ -62,7 +104,7 @@ test('real audio waveform seeks without resetting playback, preserves artwork an
   await page.reload(); await expect(active(page).getByText('Audio timeline',{exact:true})).toBeVisible(); expect(waveformRequests).toBe(0);
 });
 
-test('portrait, landscape and square video stay contained with exclusive playback and responsive rails',async({page},info)=>{
+test('video fills mobile with cropping and remains contained on desktop with exclusive playback',async({page},info)=>{
   await register(page,`formats-${info.project.name}`);
   const ffmpeg=process.env.NEBULA_FFMPEG_PATH || (existsSync('.data/tools/ffmpeg') ? resolve('.data/tools/ffmpeg') : 'ffmpeg');
   const posts=[];
@@ -73,9 +115,9 @@ test('portrait, landscape and square video stay contained with exclusive playbac
   for(const post of posts) {
     await page.goto(`/discovery?post=post-${post.id}`);
     const video=active(page).locator('video');await expect.poll(()=>video.evaluate((e:HTMLVideoElement)=>e.readyState)).toBeGreaterThanOrEqual(2);
-    await expect(video).toHaveCSS('object-fit','contain');
     for(const width of [390,768,1440]) {
       await page.setViewportSize({width,height:900});await visibleGeometry(page);
+      await expect(video).toHaveCSS('object-fit',width<768?'cover':'contain');
       expect(await video.evaluate(e=>{const r=e.getBoundingClientRect(),p=e.parentElement!.getBoundingClientRect();return r.width<=p.width+1&&r.height<=p.height+1&&r.height>80;})).toBe(true);
       if(width!==768)await page.screenshot({path:info.outputPath(`${post.title.replace(' ','-')}-${width}.png`)});
     }

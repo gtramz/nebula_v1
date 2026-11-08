@@ -1,3 +1,4 @@
+import { clickProfileLogout } from '../tests-support/profile-actions';
 import { test, expect, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 
@@ -104,7 +105,7 @@ test('server-backed funding UI: USD, repeated contributions, visibility, receipt
   await login(page, artistEmail, 'artist'); await page.getByRole('link', { name: /Contributions received Private history/ }).click();
   await expect(history.getByText('USD 300.30', { exact: true })).toBeVisible();
   await history.locator('summary').click(); await expect(history.getByText('Funding Investor', { exact: true })).toHaveCount(2);
-  await page.goto('/profile'); await page.getByRole('button', { name: 'LOGOUT', exact: true }).click();
+  await page.goto('/profile'); await clickProfileLogout(page);
   await page.goto('/received'); await expect(page.getByText('Log in to view your private history.')).toBeVisible();
 });
 
@@ -113,7 +114,11 @@ test('artist profile and project editor, catalog, search, symbolic support, arch
   const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
   await register(page, `Editor ${suffix}`, 'artist', email); await page.goto('/profile');
   await page.getByRole('button', { name: 'EDIT PROFILE', exact: true }).click();
-  await page.getByRole('textbox', { name: 'genre', exact: true }).fill('Electronic');
+  await page.getByRole('button', { name: 'Choose musical genres', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Search musical genres' }).fill('Electronic');
+  await page.getByRole('option', { name: 'Electronic', exact: true }).click();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Musical genres selector' })).toBeHidden();
   await page.getByRole('textbox', { name: 'bio', exact: true }).fill('A persistent artist profile.');
   await page.getByRole('button', { name: 'save profile', exact: true }).click(); await expect(page.getByText('Electronic', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'NEW PROJECT', exact: true }).click();
@@ -123,13 +128,13 @@ test('artist profile and project editor, catalog, search, symbolic support, arch
   await page.getByRole('button', { name: `edit ${title}`, exact: true }).click(); await page.getByLabel('PITCH (Short description)', { exact: true }).fill('Edited pitch.');
   await page.getByRole('button', { name: 'SAVE PROJECT', exact: true }).click();
   await rpc(page, 'logout'); await register(page, 'Supporting Artist', 'artist', `supporting-${suffix}@example.invalid`); await page.goto('/explore');
-  await page.getByRole('button', { name: 'album', exact: true }).click(); await page.locator('a[href^="/project/"]').filter({ hasText: title }).first().click();
+  await page.getByRole('button', { name: /^Filters/ }).click(); await page.getByRole('checkbox', { name: 'Album', exact: true }).check(); await page.getByRole('button', { name: /^Apply filters/ }).click(); await page.getByRole('article', { name: title, exact: true }).getByRole('link', { name: 'View project', exact: true }).click();
   await expect(page.getByText('Edited pitch.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'SUPPORT SYMBOLICALLY', exact: true }).click(); await expect(page.getByRole('button', { name: 'SUPPORTED', exact: true })).toBeVisible();
   await page.goto('/search'); await page.getByRole('searchbox').fill(`Editor ${suffix}`);
   await page.locator('a[href^="/artist/"]').filter({ hasText: `Editor ${suffix}` }).click(); await expect(page.getByText('A persistent artist profile.', { exact: true })).toBeVisible();
-  await page.route('**/api/rpc', route => route.abort()); await page.goto('/explore'); await expect(page.getByRole('alert')).toContainText('Cannot reach the server');
-  await page.unroute('**/api/rpc'); await page.getByRole('button', { name: 'Try again', exact: true }).click(); await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
+  await page.route('**/api/opportunities/projects?*', route => route.abort()); await page.goto('/explore'); await expect(page.getByRole('alert')).toContainText('Cannot reach the server');
+  await page.unroute('**/api/opportunities/projects?*'); await page.getByRole('button', { name: 'Try again', exact: true }).click(); await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
   await page.route('**/api/rpc', route => route.abort()); await page.goto('/search'); await page.getByRole('searchbox').fill('Editor'); await expect(page.getByRole('alert')).toContainText('Cannot reach the server');
   await page.unroute('**/api/rpc'); await page.getByRole('button', { name: 'Try again', exact: true }).click(); await expect(page.getByRole('alert')).toHaveCount(0);
   await login(page, email, 'artist'); await page.getByRole('button', { name: `edit ${title}`, exact: true }).click();

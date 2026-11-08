@@ -22,7 +22,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <div className={`shell-page relative z-10 flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden ${isDiscovery ? 'overflow-y-hidden' : ''}`}>
         {children}
       </div>
-      {!showNav && <div className="flex justify-end px-6 pt-2 pb-[max(8px,env(safe-area-inset-bottom))]"><MoreMenu /></div>}
+      {!showNav && <div className="hidden justify-end px-6 pt-2 pb-[max(8px,env(safe-area-inset-bottom))] md:flex"><MoreMenu /></div>}
     </div>
   </div>;
 }

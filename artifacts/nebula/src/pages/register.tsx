@@ -42,7 +42,7 @@ export default function Register() {
     if (role === "none") return;
     registerAccount.mutate({ data: { name, email, password, role } }, {
       onSuccess: () => {
-        setLocation(role === "artist" ? "/profile" : "/explore");
+        setLocation(role === "artist" ? "/onboarding" : "/explore");
       }
     });
   };

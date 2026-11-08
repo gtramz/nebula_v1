@@ -28,7 +28,13 @@ test('visitor discovers samples, project offers and account prompts without chan
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/discovery');
   const before = await storedData(page);
-  await expect(page.getByRole('heading', { name: /discovery/ })).toBeVisible();
+  if (page.viewportSize()!.width < 768) {
+    await expect(page.getByRole('heading', { name: /discovery/ })).toHaveCount(0);
+    const feed = await page.getByRole('region', { name: 'Discovery feed', exact: true }).boundingBox();
+    const bar = await page.getByTestId('app-navigation').boundingBox();
+    expect(feed!.y).toBeCloseTo(0, 0);
+    expect(feed!.y + feed!.height).toBeCloseTo(bar!.y, 0);
+  } else await expect(page.getByRole('heading', { name: /discovery/ })).toBeVisible();
   await expect(page.getByRole('link', { name: 'discovery', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(activePost(page)).toHaveAttribute('data-index', '0');
   await activePost(page).getByRole('button', { name: 'Star', exact: true }).click();
